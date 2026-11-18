@@ -1,0 +1,1 @@
+"""Desktop Assistant application package."""

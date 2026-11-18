@@ -1,0 +1,13 @@
+{
+  "KPlugin": {
+    "Id": "desktopassistantcursor",
+    "Name": "Desktop Assistant Cursor Bridge",
+    "Description": "Shares global pointer coordinates with Desktop Assistant on Wayland",
+    "Version": "1.0",
+    "License": "MIT",
+    "EnabledByDefault": true
+  },
+  "X-Plasma-API": "javascript",
+  "X-Plasma-MainScript": "code/main.js",
+  "KPackageStructure": "KWin/Script"
+}

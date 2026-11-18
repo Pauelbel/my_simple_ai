@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Desktop Assistant
+Comment=Animated desktop voice assistant and Markdown notes
+Exec=/home/pvb_belov/my_projects/my_simple_ai/run.sh
+Icon=/home/pvb_belov/my_projects/my_simple_ai/desktop_assistant/assets/assistant-icon.png
+Terminal=false
+Categories=Utility;
+StartupNotify=true

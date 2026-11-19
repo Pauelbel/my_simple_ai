@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from ..paths import app_data_dir
+from ..core.paths import app_data_dir
 
 
 class RecognitionHistory:

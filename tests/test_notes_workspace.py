@@ -13,8 +13,8 @@ from PySide6.QtQuickWidgets import QQuickWidget
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QInputDialog
 
-from desktop_assistant.notes_window import NotesWindow
-from desktop_assistant.services.notes import NotesRepository
+from desktop_assistant.notes.window import NotesWindow
+from desktop_assistant.notes.repository import NotesRepository
 from desktop_assistant.controller import AssistantController
 
 
@@ -72,6 +72,28 @@ class NotesWorkspaceTests(unittest.TestCase):
         self.bridge.select("", True)
         self.bridge.search("Поисковая")
         self.assertEqual(self.bridge.notes[0]["path"], "Вторая.md")
+
+    def test_panels_toggle_and_folder_drag_order_is_persisted(self):
+        library_before = self.bridge.libraryVisible
+        list_before = self.bridge.listVisible
+        self.bridge.toggleLibrary()
+        self.bridge.toggleNoteList()
+        self.assertEqual(self.bridge.libraryVisible, not library_before)
+        self.assertEqual(self.bridge.listVisible, not list_before)
+        self.bridge.toggleLibrary()
+        self.bridge.toggleNoteList()
+
+        self.repo.create_folder("", "Архив")
+        self.bridge.refresh()
+        self.bridge.reorderFolder("Работа", "Архив")
+        folders = [row["path"] for row in self.bridge.treeRows if row["folder"] and row["depth"] == 1]
+        self.assertLess(folders.index("Работа"), folders.index("Архив"))
+
+    def test_folder_drag_can_move_between_hierarchy_levels(self):
+        self.repo.create_folder("", "Архив")
+        self.bridge.reorderFolder("Работа/Вложенная", "Архив")
+        self.assertTrue(self.repo.resolve("Вложенная").is_dir())
+        self.assertTrue(self.repo.resolve("Вложенная/Идея.md").is_file())
 
     def test_edit_save_and_navigation(self):
         self.bridge.openNote("Вторая.md")
@@ -140,20 +162,33 @@ class NotesWorkspaceTests(unittest.TestCase):
         self.assertEqual(self.repo.read("Вторая.md"), "**Текст**")
         self.assertFalse(self.bridge.dirty)
 
+    def test_preview_autolinks_urls_and_changes_zoom(self):
+        self.repo.save("Ссылки.md", "Обычная ссылка https://example.com и [Markdown](https://openai.com)")
+        self.bridge.openNote("Ссылки.md")
+        self.bridge.setEditing(False)
+        html = self.bridge.previewHtml
+        self.assertIn('href="https://example.com"', html)
+        self.assertIn('href="https://openai.com"', html)
+        before = self.bridge.previewZoom
+        self.bridge.zoomPreview(1)
+        self.assertEqual(self.bridge.previewZoom, min(200, before + 10))
+        self.bridge.zoomPreview(0)
+        self.assertEqual(self.bridge.previewZoom, 100)
+
     def test_changing_notes_directory_saves_edits_and_persists(self):
         base = Path(self.temp.name)
         old = base / "old"
         new = base / "new"
         old.mkdir()
         new.mkdir()
-        with patch("desktop_assistant.settings.app_data_dir", return_value=base), \
-             patch("desktop_assistant.services.notes.app_data_dir", return_value=base):
+        with patch("desktop_assistant.settings.store.app_data_dir", return_value=base), \
+             patch("desktop_assistant.notes.repository.app_data_dir", return_value=base):
             controller = AssistantController(self.app)
-            controller.notes = NotesRepository(old)
-            controller.notes.save("note.md", "before")
-            controller.notes_window = NotesWindow(controller.notes)
-            controller.notes_window.bridge.openNote("note.md")
-            controller.notes_window.bridge.updateContent("after")
+            controller.notes.repository = NotesRepository(old)
+            controller.notes.repository.save("note.md", "before")
+            controller.notes.window = NotesWindow(controller.notes.repository)
+            controller.notes.window.bridge.openNote("note.md")
+            controller.notes.window.bridge.updateContent("after")
             self.assertTrue(controller._save_preferences(4, str(new)))
             self.assertEqual((old / "note.md").read_text(), "after")
             self.assertEqual(controller.notes.root, new)
@@ -163,10 +198,10 @@ class NotesWorkspaceTests(unittest.TestCase):
         base = Path(self.temp.name)
         new = base / "new"
         new.mkdir()
-        with patch("desktop_assistant.settings.app_data_dir", return_value=base), \
-             patch("desktop_assistant.services.notes.app_data_dir", return_value=base):
+        with patch("desktop_assistant.settings.store.app_data_dir", return_value=base), \
+             patch("desktop_assistant.notes.repository.app_data_dir", return_value=base):
             controller = AssistantController(self.app)
-            controller.notes_window = self.window
+            controller.notes.window = self.window
             self.bridge.openNote("Вторая.md")
             self.bridge.updateContent("Не потерять")
             with patch.object(self.repo, "save", side_effect=OSError("Нет места")):
@@ -176,12 +211,12 @@ class NotesWorkspaceTests(unittest.TestCase):
             self.assertFalse(controller.settings.path.exists())
 
     def test_model_selection_is_saved_and_invalid_model_rejected(self):
-        from desktop_assistant.services.speech_model import REQUIRED_FILES
+        from desktop_assistant.dictation.speech_model import REQUIRED_FILES
         base = Path(self.temp.name)
         model = base / "model"
         model.mkdir()
-        with patch("desktop_assistant.settings.app_data_dir", return_value=base), \
-             patch("desktop_assistant.services.notes.app_data_dir", return_value=base):
+        with patch("desktop_assistant.settings.store.app_data_dir", return_value=base), \
+             patch("desktop_assistant.notes.repository.app_data_dir", return_value=base):
             controller = AssistantController(self.app)
             with self.assertRaises(RuntimeError):
                 controller._save_preferences(2, str(controller.notes.root), str(model))

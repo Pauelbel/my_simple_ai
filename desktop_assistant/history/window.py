@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from .services.history import RecognitionHistory
+from .repository import RecognitionHistory
 
 
 class HistoryWindow(QDialog):

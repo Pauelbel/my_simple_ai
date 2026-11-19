@@ -12,7 +12,7 @@ REQUIRED_FILES = ("model.bin", "config.json", "tokenizer.json", "vocabulary.txt"
 
 def model_directory() -> Path:
     base = Path(__file__).resolve().parents[2]
-    return base / "models" / MODEL_NAME
+    return base / "data" / "speech-models" / MODEL_NAME
 
 
 def validate_model(directory: Path | None = None) -> Path:

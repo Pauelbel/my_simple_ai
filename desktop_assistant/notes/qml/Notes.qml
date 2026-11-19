@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import "notes" as Ui
+import "../../ui/components" as Ui
 
 Rectangle {
     id: workspace
@@ -23,6 +23,9 @@ Rectangle {
     Shortcut { sequence: "Ctrl+Shift+N"; onActivated: notesBridge.createHere(true) }
     Shortcut { sequences: [StandardKey.Find]; onActivated: search.forceActiveFocus() }
     Shortcut { sequence: "Ctrl+E"; enabled: notesBridge.currentPath !== ""; onActivated: notesBridge.setEditing(!notesBridge.editing) }
+    Shortcut { sequence: "Ctrl+Shift+B"; onActivated: notesBridge.toggleLibrary() }
+    Shortcut { sequence: "Ctrl+Shift+L"; onActivated: notesBridge.toggleNoteList() }
+    Shortcut { sequence: "Ctrl+0"; enabled: !notesBridge.editing; onActivated: notesBridge.zoomPreview(0) }
 
     SplitView {
         id: split
@@ -34,6 +37,7 @@ Rectangle {
             Rectangle { anchors.centerIn: parent; width: 1; height: parent.height; color: SplitHandle.hovered || SplitHandle.pressed ? Ui.Theme.accent : Ui.Theme.border }
         }
         Ui.Panel {
+            visible: notesBridge.libraryVisible
             SplitView.preferredWidth: 236; SplitView.minimumWidth: 180; SplitView.maximumWidth: 420
             color: Ui.Theme.sidebar
             ColumnLayout {
@@ -46,7 +50,7 @@ Rectangle {
                     Ui.ActionButton { iconName: "plus"; hint: "Новая заметка · Ctrl+N"; onClicked: notesBridge.createHere(false) }
                 }
                 Rectangle { Layout.fillWidth: true; height: 1; color: Ui.Theme.border }
-                Ui.FileTree { Layout.fillWidth: true; Layout.fillHeight: true; Layout.topMargin: 8 }
+                FileTree { Layout.fillWidth: true; Layout.fillHeight: true; Layout.topMargin: 8 }
                 Rectangle { Layout.fillWidth: true; height: 1; color: Ui.Theme.border }
                 RowLayout {
                     Layout.fillWidth: true; Layout.margins: 8
@@ -57,6 +61,7 @@ Rectangle {
             }
         }
         Ui.Panel {
+            visible: notesBridge.listVisible
             SplitView.preferredWidth: 290; SplitView.minimumWidth: 220; SplitView.maximumWidth: 460
             ColumnLayout {
                 anchors.fill: parent; spacing: 0
@@ -112,7 +117,7 @@ Rectangle {
                         wrapMode: Text.WordWrap; horizontalAlignment: Text.AlignHCenter; lineHeight: 1.5
                         color: Ui.Theme.muted; font.family: Ui.Theme.family; font.pixelSize: Ui.Theme.fontSize
                     }
-                    Ui.AppMenu { id: listMenu }
+                    AppMenu { id: listMenu }
                 }
             }
         }
@@ -124,11 +129,14 @@ Rectangle {
                     Layout.fillWidth: true; Layout.preferredHeight: Ui.Theme.barHeight
                     Layout.leftMargin: 20; Layout.rightMargin: 12; spacing: 3
                     Text { text: notesBridge.title; elide: Text.ElideRight; Layout.fillWidth: true; font.family: Ui.Theme.family; font.pixelSize: Ui.Theme.headingFont; font.weight: Font.DemiBold; color: Ui.Theme.text }
+                    Ui.ActionButton { iconName: "sidebar"; hint: (notesBridge.libraryVisible ? "Скрыть" : "Показать") + " библиотеку · Ctrl+Shift+B"; checked: notesBridge.libraryVisible; onClicked: notesBridge.toggleLibrary() }
+                    Ui.ActionButton { iconName: "columns"; hint: (notesBridge.listVisible ? "Скрыть" : "Показать") + " список заметок · Ctrl+Shift+L"; checked: notesBridge.listVisible; onClicked: notesBridge.toggleNoteList() }
+                    Rectangle { width: 1; height: 20; color: Ui.Theme.border; Layout.leftMargin: 5; Layout.rightMargin: 5 }
                     Ui.ActionButton { iconName: "save"; hint: "Сохранить · Ctrl+S"; enabled: notesBridge.dirty; onClicked: notesBridge.save() }
                     Rectangle { width: 1; height: 20; color: Ui.Theme.border; Layout.leftMargin: 5; Layout.rightMargin: 5 }
                     Ui.ActionButton { iconName: "eye"; hint: "Просмотр · Ctrl+E"; checked: !notesBridge.editing; enabled: notesBridge.currentPath !== ""; onClicked: notesBridge.setEditing(false) }
                     Ui.ActionButton { iconName: "edit"; hint: "Редактировать · Ctrl+E"; checked: notesBridge.editing; enabled: notesBridge.currentPath !== ""; onClicked: { notesBridge.setEditing(true); editor.forceActiveFocus() } }
-                    Ui.ActionButton { iconName: "more"; hint: "Действия с заметкой"; enabled: notesBridge.currentPath !== ""; onClicked: { documentMenu.targetPath = notesBridge.currentPath; documentMenu.folder = false; documentMenu.popup() } Ui.AppMenu { id: documentMenu } }
+                    Ui.ActionButton { iconName: "more"; hint: "Действия с заметкой"; enabled: notesBridge.currentPath !== ""; onClicked: { documentMenu.targetPath = notesBridge.currentPath; documentMenu.folder = false; documentMenu.popup() } AppMenu { id: documentMenu } }
                     Ui.ActionButton { iconName: "trash"; hint: "Удалить заметку"; enabled: notesBridge.currentPath !== ""; onClicked: notesBridge.delete(notesBridge.currentPath) }
                 }
                 Rectangle { Layout.fillWidth: true; height: 1; color: Ui.Theme.border }
@@ -143,6 +151,8 @@ Rectangle {
                     Ui.ActionButton { iconName: "list"; hint: "Маркированный список"; onClicked: editor.prefix("- ") }
                     Ui.ActionButton { iconName: "quote"; hint: "Цитата"; onClicked: editor.prefix("> ") }
                     Ui.ActionButton { iconName: "link"; hint: "Ссылка"; onClicked: editor.wrap("[", "](https://)", "название") }
+                    Ui.ActionButton { iconName: "image"; hint: "Вставить изображение"; onClicked: editor.insertBlock(notesBridge.importImage()) }
+                    Ui.ActionButton { iconName: "table"; hint: "Вставить таблицу"; onClicked: editor.insertBlock("| Столбец 1 | Столбец 2 |\n| --- | --- |\n| Значение 1 | Значение 2 |") }
                     Ui.ActionButton { iconName: "code"; hint: "Код"; onClicked: editor.wrap("`", "`", "код") }
                     Item { Layout.fillWidth: true }
                     Text { text: "Markdown"; color: Ui.Theme.muted; font.family: Ui.Theme.family; font.pixelSize: Ui.Theme.smallFont }
@@ -185,6 +195,15 @@ Rectangle {
                                 remove(start, end); insert(start, mark + selected.replace(/\n/g, "\n" + mark))
                                 forceActiveFocus()
                             }
+                            function insertBlock(markdown) {
+                                if (!markdown) return
+                                var start = selectionStart
+                                var before = start > 0 && text.charAt(start - 1) !== "\n" ? "\n\n" : ""
+                                var after = start < text.length && text.charAt(start) !== "\n" ? "\n\n" : "\n"
+                                insert(start, before + markdown + after)
+                                cursorPosition = start + before.length + markdown.length
+                                forceActiveFocus()
+                            }
                             Shortcut { sequence: "Ctrl+B"; enabled: notesBridge.editing; onActivated: editor.wrap("**", "**", "текст") }
                             Shortcut { sequence: "Ctrl+I"; enabled: notesBridge.editing; onActivated: editor.wrap("*", "*", "текст") }
                         }
@@ -197,6 +216,7 @@ Rectangle {
                         clip: true
                         ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
                         TextArea {
+                            id: preview
                             objectName: "markdownPreview"
                             width: previewScroll.availableWidth
                             text: notesBridge.previewHtml
@@ -210,6 +230,10 @@ Rectangle {
                             background: null
                             Accessible.name: "Просмотр Markdown"
                             onLinkActivated: (link) => notesBridge.openLink(link)
+                            WheelHandler {
+                                acceptedModifiers: Qt.ControlModifier
+                                onWheel: (event) => notesBridge.zoomPreview(event.angleDelta.y)
+                            }
                         }
                     }
                     Column {
@@ -224,7 +248,7 @@ Rectangle {
                 RowLayout {
                     Layout.fillWidth: true; Layout.preferredHeight: 32; Layout.leftMargin: 20; Layout.rightMargin: 20
                     Text { text: !notesBridge.currentPath ? "Нет открытой заметки" : notesBridge.dirty ? "Есть несохранённые изменения" : "Сохранено"; color: notesBridge.dirty ? Ui.Theme.accent : Ui.Theme.muted; font.family: Ui.Theme.family; font.pixelSize: Ui.Theme.smallFont; Layout.fillWidth: true; elide: Text.ElideRight }
-                    Text { text: notesBridge.currentPath ? notesBridge.statistics : "Markdown"; color: Ui.Theme.muted; font.family: Ui.Theme.family; font.pixelSize: Ui.Theme.smallFont }
+                    Text { text: notesBridge.currentPath ? notesBridge.statistics + (!notesBridge.editing ? " · " + notesBridge.previewZoom + "%" : "") : "Markdown"; color: Ui.Theme.muted; font.family: Ui.Theme.family; font.pixelSize: Ui.Theme.smallFont }
                 }
             }
         }

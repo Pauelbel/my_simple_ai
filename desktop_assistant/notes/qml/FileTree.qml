@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import "../../ui/components"
 ListView {
     id: tree
     clip: true
@@ -15,14 +16,19 @@ ListView {
         text: modelData.name
         Accessible.name: text
         focusPolicy: Qt.StrongFocus
+        Drag.active: folderDrag.active
+        Drag.source: row
+        Drag.hotSpot.x: width / 2
+        Drag.hotSpot.y: height / 2
         onClicked: notesBridge.select(modelData.path, modelData.folder)
         Keys.onRightPressed: if (modelData.folder && !modelData.expanded) notesBridge.toggleFolder(modelData.path)
         Keys.onLeftPressed: if (modelData.folder && modelData.expanded) notesBridge.toggleFolder(modelData.path)
         Keys.onReturnPressed: notesBridge.select(modelData.path, modelData.folder)
         Keys.onPressed: (event) => { if (event.key === Qt.Key_F2) { notesBridge.rename(modelData.path); event.accepted = true } }
         background: Rectangle {
-            color: notesBridge.selectedPath === row.modelData.path ? Theme.selected : row.hovered ? Theme.hover : "transparent"
+            color: folderDrop.containsDrag ? Theme.pressed : notesBridge.selectedPath === row.modelData.path ? Theme.selected : row.hovered ? Theme.hover : "transparent"
             Rectangle { width: 2; height: parent.height; color: Theme.accent; visible: notesBridge.selectedPath === row.modelData.path }
+            Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; height: 2; color: Theme.accent; visible: folderDrop.containsDrag }
         }
         contentItem: Item {
             Repeater {
@@ -82,6 +88,20 @@ ListView {
             onTapped: (eventPoint) => {
                 context.targetPath = row.modelData.path; context.folder = row.modelData.folder
                 context.popup(row, eventPoint.position.x, eventPoint.position.y)
+            }
+        }
+        DragHandler {
+            id: folderDrag
+            enabled: row.modelData.folder && row.modelData.path !== ""
+            target: null
+        }
+        DropArea {
+            id: folderDrop
+            anchors.fill: parent
+            enabled: row.modelData.folder && row.modelData.path !== ""
+            onDropped: (drop) => {
+                if (drop.source && drop.source.modelData)
+                    notesBridge.reorderFolder(drop.source.modelData.path, row.modelData.path)
             }
         }
     }

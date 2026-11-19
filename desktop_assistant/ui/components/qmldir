@@ -1,2 +1,2 @@
-module NotesUi
+module AssistantUi
 singleton Theme 1.0 Theme.qml

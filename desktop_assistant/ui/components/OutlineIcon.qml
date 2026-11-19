@@ -27,11 +27,15 @@ Image {
         "moon": '<path d="M21 13A9 9 0 0 1 11 3a9 9 0 1 0 10 10Z"/>',
         "chevron": '<path d="m9 5 7 7-7 7"/>',
         "more": '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+        "sidebar": '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>',
+        "columns": '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M14 3v18"/>',
         "bold": '<path d="M6 4h7a4 4 0 0 1 0 8H6V4Zm0 8h8a4 4 0 0 1 0 8H6Z"/>',
         "italic": '<path d="M10 4h9M5 20h9M15 4 9 20"/>',
         "heading": '<path d="M5 4v16M16 4v16M5 12h11"/>',
         "list": '<path d="M9 6h12M9 12h12M9 18h12M3 6h1M3 12h1M3 18h1"/>',
         "link": '<path d="m10 13 4-4M8 15l-2 2a3 3 0 0 1-4-4l5-5a3 3 0 0 1 4 0M16 9l2-2a3 3 0 0 1 4 4l-5 5a3 3 0 0 1-4 0"/>',
+        "image": '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m3 17 5-5 4 4 3-3 6 6"/>',
+        "table": '<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 10h18M9 4v16M15 4v16"/>',
         "code": '<path d="m8 6-6 6 6 6m8-12 6 6-6 6M14 3l-4 18"/>',
         "quote": '<path d="M4 5h6v7H4Zm10 0h6v7h-6ZM10 12c0 5-3 7-6 7M20 12c0 5-3 7-6 7"/>'
     })

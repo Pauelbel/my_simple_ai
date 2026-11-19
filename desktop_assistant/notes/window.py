@@ -1,13 +1,16 @@
 """QML notes workspace and its filesystem-backed presentation model."""
 from datetime import datetime
+import hashlib
+import json
+import re
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Property, QSettings, QUrl, Signal, Slot
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QPalette, QTextBlockFormat, QTextCursor, QTextDocument
 from PySide6.QtQuickWidgets import QQuickWidget
-from PySide6.QtWidgets import QInputDialog, QMainWindow, QMessageBox
+from PySide6.QtWidgets import QFileDialog, QInputDialog, QMainWindow, QMessageBox
 
-from .services.notes import NotesRepository
+from .repository import NotesRepository
 
 
 class NotesBridge(QObject):
@@ -30,7 +33,16 @@ class NotesBridge(QObject):
         self._query = ""
         self._editing = False
         self._expanded = {""}
+        settings_suffix = hashlib.sha256(str(repository.root).encode()).hexdigest()[:16]
+        self._layout_key = f"notes/layout/{settings_suffix}"
+        try:
+            self._folder_order = json.loads(self.preferences.value(self._layout_key + "/folderOrder", "[]"))
+        except (TypeError, json.JSONDecodeError):
+            self._folder_order = []
+        self._library_visible = self.preferences.value("notes/libraryVisible", True, type=bool)
+        self._list_visible = self.preferences.value("notes/listVisible", True, type=bool)
         self._preview_style = ("Sans Serif", 16, "#96b6f1")
+        self._preview_zoom = max(60, min(200, self.preferences.value("notes/previewZoom", 100, type=int)))
         self._preview_cache = (None, "")
         self._tree = []
         self._notes = []
@@ -69,20 +81,55 @@ class NotesBridge(QObject):
     @Property(bool, notify=themeChanged)
     def dark(self): return self._dark
 
+    @Property(bool, notify=changed)
+    def libraryVisible(self): return self._library_visible
+
+    @Property(bool, notify=changed)
+    def listVisible(self): return self._list_visible
+
+    @Property(int, notify=changed)
+    def previewZoom(self): return self._preview_zoom
+
     @Property(str, notify=changed)
     def previewHtml(self):
         if self._editing:
             return self._preview_cache[1]
-        key = (self._content, self._preview_style)
+        key = (self._content, self._preview_style, self._preview_zoom, self._path)
         if self._preview_cache[0] == key:
             return self._preview_cache[1]
         doc = QTextDocument()
         family, size, accent = self._preview_style
         font = QFont(family)
-        font.setPixelSize(size)
+        font.setPixelSize(max(8, round(size * self._preview_zoom / 100)))
         doc.setDefaultFont(font)
-        doc.setDefaultStyleSheet(f"a {{ color: {accent}; }}")
-        doc.setMarkdown(self._content)
+        doc.setDefaultStyleSheet(
+            f"a {{ color: {accent}; text-decoration: underline; }} "
+            f"table {{ border-collapse: collapse; margin: 8px 0; }} "
+            f"th, td {{ border: 1px solid {accent}; padding: 6px 10px; }} "
+            f"th {{ font-weight: 600; }}"
+        )
+        # QTextDocument created by QML does not inherit our base URL. Absolute
+        # file URLs keep library-local Markdown images visible in the preview.
+        markdown = self._content
+        if self._path:
+            note_dir = self.repository.resolve(self._path).parent
+            def absolute_image(match):
+                target = match.group(2)
+                url = QUrl(target)
+                if url.scheme() or target.startswith("/"):
+                    return match.group(0)
+                image = (note_dir / target).resolve()
+                if image == self.repository.root.resolve() or self.repository.root.resolve() in image.parents:
+                    return f"![{match.group(1)}]({QUrl.fromLocalFile(str(image)).toString()})"
+                return match.group(0)
+            markdown = re.sub(r"!\[([^\]]*)\]\(([^)\s]+)\)", absolute_image, markdown)
+        # Qt's Markdown parser requires explicit link syntax. Make pasted bare
+        # web addresses clickable without touching existing Markdown links.
+        markdown = re.sub(
+            r"(?<![<(])(https?://[^\s<>]+?)(?=[.,;:!?)]?(?:\s|$))",
+            lambda match: f"<{match.group(1)}>", markdown
+        )
+        doc.setMarkdown(markdown)
         block = doc.begin()
         while block.isValid():
             cursor = QTextCursor(block)
@@ -98,6 +145,16 @@ class NotesBridge(QObject):
     @Slot(str, int, QColor)
     def setPreviewStyle(self, family, size, accent):
         self._preview_style = (family, size, accent.name())
+        self.changed.emit()
+
+    @Slot(int)
+    def zoomPreview(self, steps):
+        zoom = 100 if steps == 0 else max(60, min(200, self._preview_zoom + (10 if steps > 0 else -10)))
+        if zoom == self._preview_zoom:
+            return
+        self._preview_zoom = zoom
+        self.preferences.setValue("notes/previewZoom", zoom)
+        self._preview_cache = (None, "")
         self.changed.emit()
 
     @Slot(QColor, QColor, QColor, QColor, QColor)
@@ -127,8 +184,17 @@ class NotesBridge(QObject):
                     if node["folder"] and node["path"] in self._expanded:
                         append(node["children"], depth + 1, guides + [not last])
 
+            def ordered(nodes):
+                rank = {path: index for index, path in enumerate(self._folder_order)}
+                folders = [node for node in nodes if node["folder"]]
+                files = [node for node in nodes if not node["folder"]]
+                folders.sort(key=lambda node: (rank.get(node["path"], len(rank)), node["name"].casefold()))
+                for node in folders:
+                    node["children"] = ordered(node["children"])
+                return folders + files
+
             if "" in self._expanded:
-                append(self.repository.tree(), 1, [])
+                append(ordered(self.repository.tree()), 1, [])
             notes = self.repository.note_summaries(self._folder, self._query)
             for note in notes:
                 note["date"] = datetime.fromtimestamp(note["modified"]).strftime("%d.%m.%Y · %H:%M")
@@ -143,6 +209,65 @@ class NotesBridge(QObject):
         if path in self._expanded: self._expanded.remove(path)
         else: self._expanded.add(path)
         self.refresh()
+
+    @Slot()
+    def toggleLibrary(self):
+        self._library_visible = not self._library_visible
+        self.preferences.setValue("notes/libraryVisible", self._library_visible)
+        self.changed.emit()
+
+    @Slot()
+    def toggleNoteList(self):
+        self._list_visible = not self._list_visible
+        self.preferences.setValue("notes/listVisible", self._list_visible)
+        self.changed.emit()
+
+    @Slot(str, str)
+    def reorderFolder(self, source, target):
+        """Place a folder before another folder, reparenting across tree levels."""
+        if not source or not target or source == target:
+            return
+        source_path, target_path = Path(source), Path(target)
+        if source_path in target_path.parents:
+            self.error("Нельзя переместить папку внутрь самой себя")
+            return
+        try:
+            destination = source
+            target_parent = target_path.parent.as_posix() if target_path.parent != Path(".") else ""
+            source_parent = source_path.parent.as_posix() if source_path.parent != Path(".") else ""
+            if source_parent != target_parent:
+                if not self.save():
+                    return
+                destination = self.repository.move(source, target_parent)
+
+            def remap(path):
+                if path == source: return destination
+                if path.startswith(source + "/"): return destination + path[len(source):]
+                return path
+
+            order = [remap(path) for path in self._folder_order
+                     if path != source and not path.startswith(source + "/")]
+            # Include folders not ordered before so every drag has a stable result.
+            all_folders = []
+            def collect(nodes):
+                for node in nodes:
+                    if node["folder"]:
+                        all_folders.append(node["path"])
+                        collect(node["children"])
+            collect(self.repository.tree())
+            for path in all_folders:
+                if path != destination and path not in order:
+                    order.append(path)
+            insert_at = order.index(target) if target in order else len(order)
+            order.insert(insert_at, destination)
+            self._folder_order = order
+            self.preferences.setValue(self._layout_key + "/folderOrder", json.dumps(order, ensure_ascii=False))
+            if destination != source:
+                self._relocated(source, destination)
+            else:
+                self.refresh()
+        except (OSError, ValueError) as error:
+            self.error(error)
 
     @Slot(str, bool)
     def select(self, path, folder):
@@ -201,6 +326,24 @@ class NotesBridge(QObject):
     def setEditing(self, editing):
         self._editing = editing
         self.changed.emit()
+
+    @Slot(result=str)
+    def importImage(self):
+        if not self._path:
+            return ""
+        source, _ = QFileDialog.getOpenFileName(
+            self.window, "Вставить изображение", "",
+            "Изображения (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)"
+        )
+        if not source:
+            return ""
+        try:
+            relative = self.repository.import_image(self._path, source)
+            alt = Path(source).stem.replace("[", "").replace("]", "") or "Изображение"
+            return f"![{alt}]({relative})"
+        except (OSError, ValueError) as error:
+            self.error(error)
+            return ""
 
     @Slot()
     def toggleTheme(self):

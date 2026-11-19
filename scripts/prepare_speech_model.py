@@ -6,7 +6,7 @@ from urllib.request import urlopen
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from desktop_assistant.services.speech_model import (
+from desktop_assistant.dictation.speech_model import (
     MODEL_REPOSITORY, MODEL_REVISION, MODEL_BIN_SHA256, REQUIRED_FILES, model_directory, validate_model, file_sha256,
 )
 

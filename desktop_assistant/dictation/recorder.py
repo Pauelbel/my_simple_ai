@@ -4,7 +4,7 @@ from uuid import uuid4
 from PySide6.QtCore import QObject, QUrl, Signal
 from PySide6.QtMultimedia import QAudioInput, QMediaCaptureSession, QMediaFormat, QMediaRecorder
 
-from ..paths import app_data_dir
+from ..core.paths import app_data_dir
 
 
 class AudioRecorder(QObject):

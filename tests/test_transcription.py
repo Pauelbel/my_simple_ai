@@ -10,10 +10,10 @@ from unittest.mock import Mock, patch
 
 from PySide6.QtCore import QCoreApplication
 
-from desktop_assistant.services.speech_model import REQUIRED_FILES, validate_model
-from desktop_assistant.services.transcription import Transcriber, format_text
-from desktop_assistant.services.history import RecognitionHistory
-from desktop_assistant.settings import Settings
+from desktop_assistant.dictation.speech_model import REQUIRED_FILES, validate_model
+from desktop_assistant.dictation.transcription import Transcriber, format_text
+from desktop_assistant.history.repository import RecognitionHistory
+from desktop_assistant.settings.store import Settings
 
 
 class TranscriptionTests(unittest.TestCase):
@@ -90,7 +90,7 @@ class TranscriptionTests(unittest.TestCase):
 
     def test_model_is_reused_and_cpu_int8_offline_are_explicit(self):
         factory = Mock(return_value=object())
-        with patch("desktop_assistant.services.transcription.validate_model", return_value=self.root), patch.dict(sys.modules, {"faster_whisper": SimpleNamespace(WhisperModel=factory)}):
+        with patch("desktop_assistant.dictation.transcription.validate_model", return_value=self.root), patch.dict(sys.modules, {"faster_whisper": SimpleNamespace(WhisperModel=factory)}):
             first = self.worker._load_model({"speech_cpu_threads": 2})
             self.assertIs(first, self.worker._load_model({"speech_cpu_threads": 2}))
         factory.assert_called_once_with(str(self.root), device="cpu", compute_type="int8", cpu_threads=2, num_workers=1, local_files_only=True)
@@ -103,7 +103,7 @@ class TranscriptionTests(unittest.TestCase):
             for name in REQUIRED_FILES:
                 (directory / name).write_text("{}")
         factory = Mock(side_effect=[object(), object()])
-        with patch("desktop_assistant.services.transcription.find_spec", return_value=True), \
+        with patch("desktop_assistant.dictation.transcription.find_spec", return_value=True), \
              patch.dict(sys.modules, {"faster_whisper": SimpleNamespace(WhisperModel=factory)}):
             self.worker.check_ready({"speech_model_directory": str(first)})
             self.worker._load_model({"speech_model_directory": str(first)})
@@ -133,7 +133,7 @@ class TranscriptionTests(unittest.TestCase):
 
     def test_existing_settings_migrate_without_requiring_api(self):
         (self.root / "settings.json").write_text(json.dumps({"api_key": "old-value", "model": "old-cloud-model"}))
-        with patch("desktop_assistant.settings.app_data_dir", return_value=self.root):
+        with patch("desktop_assistant.settings.store.app_data_dir", return_value=self.root):
             settings = Settings()
             self.assertEqual(settings.values["speech_cpu_threads"], 4)
             self.assertTrue(settings.values["always_on_top"])
@@ -150,7 +150,7 @@ class AudioRecorderTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def test_audio_input_is_retained_by_capture_session(self):
-        from desktop_assistant.services.recorder import AudioRecorder
+        from desktop_assistant.dictation.recorder import AudioRecorder
         recorder = AudioRecorder()
         self.assertIsNotNone(recorder.capture.audioInput())
 
@@ -186,46 +186,47 @@ class DictationFlowTests(unittest.TestCase):
         self.history = Mock()
         self.app_settings = SimpleNamespace(values={'speech_cpu_threads': 4, 'always_on_top': True})
         self.app_settings.save = Mock(side_effect=lambda updates: self.app_settings.values.update(updates))
-        with patch('desktop_assistant.controller.AudioRecorder', return_value=self.recorder), patch('desktop_assistant.controller.Transcriber', return_value=self.transcriber), patch('desktop_assistant.controller.RecognitionHistory', return_value=self.history), patch('desktop_assistant.controller.NotesRepository'), patch('desktop_assistant.controller.Settings', return_value=self.app_settings):
+        with patch('desktop_assistant.dictation.controller.AudioRecorder', return_value=self.recorder), patch('desktop_assistant.dictation.controller.Transcriber', return_value=self.transcriber), patch('desktop_assistant.controller.RecognitionHistory', return_value=self.history), patch('desktop_assistant.controller.NotesRepository'), patch('desktop_assistant.controller.Settings', return_value=self.app_settings):
             self.controller = AssistantController(self.app)
+            self.dictation = self.controller.dictation
         self.notifications=[]
         self.controller.notification.connect(self.notifications.append)
 
     def test_click_record_stop_copy_history_and_cleanup(self):
-        self.controller.toggleRecording()
-        self.assertEqual(self.controller.status, 'recording')
-        self.controller.toggleRecording()
-        self.assertEqual(self.controller.status, 'processing')
+        self.dictation.toggleRecording()
+        self.assertEqual(self.dictation.status, 'recording')
+        self.dictation.toggleRecording()
+        self.assertEqual(self.dictation.status, 'processing')
         self.transcriber.transcribe.assert_called_once_with('/tmp/test.wav', {'speech_cpu_threads': 4, 'always_on_top': True})
-        self.controller.toggleRecording()
+        self.dictation.toggleRecording()
         self.recorder.start.assert_called_once()
         self.transcriber.completed.emit('Привет, мир!')
         self.transcriber.finished.emit('/tmp/test.wav')
         self.assertEqual(self.app.clipboard().text(), 'Привет, мир!')
         self.history.add.assert_called_once_with('Привет, мир!')
         self.recorder.cleanup.assert_called_once_with('/tmp/test.wav')
-        self.assertEqual(self.controller.status, 'idle')
+        self.assertEqual(self.dictation.status, 'idle')
 
     def test_missing_model_does_not_start_recording(self):
         self.transcriber.check_ready.side_effect=RuntimeError('Нет локальной модели')
-        self.controller.toggleRecording()
+        self.dictation.toggleRecording()
         self.recorder.start.assert_not_called()
-        self.assertEqual(self.controller.status, 'idle')
+        self.assertEqual(self.dictation.status, 'idle')
         self.assertIn('Нет локальной модели', self.notifications)
 
     def test_recognition_failure_preserves_clipboard(self):
         self.app.clipboard().setText('Предыдущий текст')
-        self.controller.toggleRecording(); self.controller.toggleRecording()
+        self.dictation.toggleRecording(); self.dictation.toggleRecording()
         self.transcriber.failed.emit('Речь не обнаружена')
         self.assertEqual(self.app.clipboard().text(), 'Предыдущий текст')
         self.history.add.assert_not_called()
-        self.assertEqual(self.controller.status, 'idle')
+        self.assertEqual(self.dictation.status, 'idle')
 
     def test_busy_transcriber_restores_idle_and_cleans_recording(self):
         self.transcriber.transcribe.return_value = False
-        self.controller.toggleRecording(); self.controller.toggleRecording()
+        self.dictation.toggleRecording(); self.dictation.toggleRecording()
         self.recorder.cleanup.assert_called_once_with('/tmp/test.wav')
-        self.assertEqual(self.controller.status, 'idle')
+        self.assertEqual(self.dictation.status, 'idle')
         self.assertIn('Распознавание уже выполняется', self.notifications[-1])
 
     def test_always_on_top_toggle_updates_open_history_and_notes(self):
@@ -234,12 +235,12 @@ class DictationFlowTests(unittest.TestCase):
         self.history.list.return_value = []
         self.controller.showHistory()
         notes = QDialog()
-        self.controller.notes_window = notes
+        self.controller.notes.window = notes
         notes.show()
-        history = self.controller.history_window
+        history = self.controller.history.window
         try:
             self.assertTrue(history.windowFlags() & Qt.WindowStaysOnTopHint)
-            self.controller._update_window_on_top(notes)
+            self.controller.notes.set_always_on_top(True)
             self.assertTrue(notes.windowFlags() & Qt.WindowStaysOnTopHint)
 
             self.controller.toggleAlwaysOnTop()
@@ -261,11 +262,11 @@ class DictationFlowTests(unittest.TestCase):
         item = {'created_at': '2026-11-18T21:31:07', 'text': 'Привет'}
         self.history.list.side_effect = [[item], [item], []]
         self.controller.showHistory()
-        window = self.controller.history_window
+        window = self.controller.history.window
         try:
             self.assertTrue(window.isVisible())
             self.assertFalse(window.isModal())
-            with patch('desktop_assistant.history_window.QMessageBox.question', return_value=QMessageBox.StandardButton.Yes):
+            with patch('desktop_assistant.history.window.QMessageBox.question', return_value=QMessageBox.StandardButton.Yes):
                 window.clear_button.click()
             self.history.clear.assert_called_once()
             self.assertEqual(window.text.toPlainText(), 'История пока пуста.')
@@ -281,7 +282,8 @@ class DictationFlowTests(unittest.TestCase):
 
         engine = QQmlApplicationEngine()
         engine.rootContext().setContextProperty('assistant', self.controller)
-        engine.load(QUrl.fromLocalFile(str(Path('desktop_assistant/qml/Head.qml').resolve())))
+        engine.rootContext().setContextProperty('dictation', self.dictation)
+        engine.load(QUrl.fromLocalFile(str(Path('desktop_assistant/ui/overlay/Head.qml').resolve())))
         self.assertTrue(engine.rootObjects())
         window = engine.rootObjects()[0]
         try:
@@ -301,13 +303,14 @@ class DictationFlowTests(unittest.TestCase):
             QTest.mouseClick(window, Qt.LeftButton, Qt.NoModifier, QPoint(68, 68))
             QTest.qWait(30)
             self.recorder.start.assert_called_once()
-            self.assertEqual(self.controller.status, 'recording')
+            self.assertEqual(self.dictation.status, 'recording')
 
+            self.assertIsNotNone(window.findChild(QObject, 'assistantOrb'))
             sound = window.findChild(QObject, 'recordingStartSound')
             self.assertTrue(sound.property('source').toString().endswith('recording-start.wav'))
             indicator = window.findChild(QObject, 'processingIndicator')
             self.assertFalse(indicator.property('visible'))
-            self.controller.toggleRecording()
+            self.dictation.toggleRecording()
             QTest.qWait(100)
             self.assertTrue(indicator.property('visible'))
             phase = indicator.property('phase')
@@ -337,7 +340,7 @@ class DictationFlowTests(unittest.TestCase):
 class HistoryRepositoryTests(unittest.TestCase):
     def test_clear_removes_all_saved_recognitions(self):
         with tempfile.TemporaryDirectory() as directory:
-            with patch('desktop_assistant.services.history.app_data_dir', return_value=Path(directory)):
+            with patch('desktop_assistant.history.repository.app_data_dir', return_value=Path(directory)):
                 history = RecognitionHistory()
                 history.add('Первая запись')
                 history.add('Вторая запись')

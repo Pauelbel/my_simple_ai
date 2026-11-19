@@ -4,5 +4,5 @@ __pycache__/
 .pytest_cache/
 build/
 dist/
-models/
+/data/speech-models/
 *.egg-info/

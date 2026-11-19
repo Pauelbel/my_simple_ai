@@ -1,0 +1,55 @@
+from pathlib import Path
+
+from PySide6.QtCore import QObject, QSettings, Signal
+
+from desktop_assistant.core.windowing import set_always_on_top
+
+from .repository import NotesRepository
+from .window import NotesWindow
+
+
+class NotesController(QObject):
+    themeChanged = Signal()
+
+    def __init__(self, repository: NotesRepository) -> None:
+        super().__init__()
+        self.repository = repository
+        self.window: NotesWindow | None = None
+        self._always_on_top = True
+
+    @property
+    def root(self) -> Path:
+        return self.repository.root
+
+    @property
+    def dark_theme(self) -> bool:
+        if self.window is not None:
+            return self.window.bridge.dark
+        return QSettings().value("notes/dark", True, type=bool)
+
+    def set_always_on_top(self, enabled: bool) -> None:
+        self._always_on_top = enabled
+        if self.window is not None:
+            set_always_on_top(self.window, enabled)
+
+    def show(self) -> None:
+        if self.window is None:
+            self.window = NotesWindow(self.repository)
+            self.window.bridge.themeChanged.connect(self.themeChanged.emit)
+        set_always_on_top(self.window, self._always_on_top)
+        self.window.showNormal()
+        self.window.raise_()
+        self.window.activateWindow()
+
+    def save(self) -> bool:
+        return self.window.bridge.save() if self.window is not None else True
+
+    def replace_repository(self, repository: NotesRepository) -> None:
+        was_visible = self.window is not None and self.window.isVisible()
+        if self.window is not None:
+            self.window.close()
+            self.window.deleteLater()
+            self.window = None
+        self.repository = repository
+        if was_visible:
+            self.show()

@@ -1,6 +1,7 @@
 from pathlib import Path
+import shutil
 
-from ..paths import app_data_dir
+from ..core.paths import app_data_dir
 
 
 class NotesRepository:
@@ -37,6 +38,30 @@ class NotesRepository:
             raise ValueError("Заметка должна иметь расширение .md")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
+
+    def import_image(self, note: str, source: str | Path) -> str:
+        """Copy an image into the note library and return its Markdown-relative path."""
+        note_path = self.resolve(note)
+        source_path = Path(source).expanduser().resolve()
+        if note_path.suffix.lower() != ".md" or not source_path.is_file():
+            raise ValueError("Не удалось открыть изображение")
+        allowed = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}
+        if source_path.suffix.lower() not in allowed:
+            raise ValueError("Выберите изображение поддерживаемого формата")
+
+        assets = note_path.parent / ".assets" / note_path.stem
+        assets.mkdir(parents=True, exist_ok=True)
+        stem = "".join(c for c in source_path.stem if c.isalnum() or c in "-_ ").strip() or "image"
+        destination = assets / f"{stem}{source_path.suffix.lower()}"
+        index = 2
+        while destination.exists():
+            if destination.read_bytes() == source_path.read_bytes():
+                break
+            destination = assets / f"{stem}-{index}{source_path.suffix.lower()}"
+            index += 1
+        if not destination.exists():
+            shutil.copy2(source_path, destination)
+        return destination.relative_to(note_path.parent).as_posix()
 
     def create_note(self, parent: str, title: str) -> str:
         clean = "".join(c for c in title.strip() if c not in '\\/:*?\"<>|').strip(".")

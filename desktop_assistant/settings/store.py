@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from .paths import app_data_dir
+from ..core.paths import app_data_dir
 
 
 DEFAULTS = {"speech_cpu_threads": 4, "always_on_top": True, "notes_directory": "", "speech_model_directory": ""}

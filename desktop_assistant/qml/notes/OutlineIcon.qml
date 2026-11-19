@@ -11,6 +11,7 @@ Image {
         "stop": '<rect x="5" y="5" width="14" height="14" rx="2"/>',
         "history": '<path d="M3 11a9 9 0 1 1 2.6 7.4M3 4v7h7M12 7v5l3 2"/>',
         "settings": '<path d="M4 6h16M4 12h16M4 18h16M8 3v6M16 9v6M10 15v6"/>',
+        "pin": '<path d="M12 17v5M9 10V2h6v8M6 3h12l-1 7H7L6 3Z"/>',
         "exit": '<path d="M12 2v10M6.3 5.3a9 9 0 1 0 11.4 0"/>',
         "move": '<path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z M8 13h8m-3-3 3 3-3 3"/>',
         "note": '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h6"/>',

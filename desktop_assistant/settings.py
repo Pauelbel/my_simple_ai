@@ -4,7 +4,7 @@ from pathlib import Path
 from .paths import app_data_dir
 
 
-DEFAULTS = {"speech_cpu_threads": 4}
+DEFAULTS = {"speech_cpu_threads": 4, "always_on_top": True}
 
 
 

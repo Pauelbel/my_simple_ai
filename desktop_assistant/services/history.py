@@ -19,3 +19,6 @@ class RecognitionHistory:
         items = self.list()
         items.insert(0, {"created_at": datetime.now().isoformat(timespec="seconds"), "text": text})
         self.path.write_text(json.dumps(items[:100], ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def clear(self) -> None:
+        self.path.write_text("[]", encoding="utf-8")

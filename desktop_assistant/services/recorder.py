@@ -15,7 +15,8 @@ class AudioRecorder(QObject):
     def __init__(self) -> None:
         super().__init__()
         self.capture = QMediaCaptureSession()
-        self.capture.setAudioInput(QAudioInput())
+        self.audio_input = QAudioInput()
+        self.capture.setAudioInput(self.audio_input)
         self.recorder = QMediaRecorder()
         self.capture.setRecorder(self.recorder)
         self.recorder.recorderStateChanged.connect(self._state_changed)

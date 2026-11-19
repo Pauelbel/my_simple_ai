@@ -1,12 +1,13 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Window
+import QtMultimedia
 import "notes" as Ui
 
 Window {
     id: overlay
     width: 136; height: 136; visible: true; color: "transparent"
-    flags: Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+    flags: Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus | (assistant.alwaysOnTop ? Qt.WindowStaysOnTopHint : 0)
     title: "Desktop Assistant"
 
     property point dragStart: Qt.point(0, 0)
@@ -16,6 +17,13 @@ Window {
     property bool suppressClick: false
     property color neon: assistant.status === "recording" ? "#ff5f9d" : assistant.status === "processing" ? "#ffd35a" : "#35e8ff"
     Behavior on neon { ColorAnimation { duration: 320; easing.type: Easing.InOutQuad } }
+
+    SoundEffect {
+        id: recordingStartSound
+        objectName: "recordingStartSound"
+        source: Qt.resolvedUrl("../assets/recording-start.wav")
+        volume: 0.45
+    }
 
     Item {
         id: orb
@@ -32,7 +40,10 @@ Window {
             onBreathChanged: requestPaint()
             Connections {
                 target: assistant
-                function onStatusChanged() { sphere.requestPaint() }
+                function onStatusChanged() {
+                    sphere.requestPaint()
+                    if (assistant.status === "recording") recordingStartSound.play()
+                }
             }
             NumberAnimation on phase { from: 0; to: Math.PI * 2; duration: 6500; loops: Animation.Infinite }
             SequentialAnimation on breath {
@@ -115,9 +126,11 @@ Window {
 
         MouseArea {
             id: mouseArea
+            objectName: "orbMouseArea"
             anchors.fill: parent
             acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
             preventStealing: true
+            property bool nativeMoving: false
             cursorShape: overlay.dragging ? Qt.ClosedHandCursor : overlay.dragButton !== Qt.NoButton ? Qt.ClosedHandCursor : Qt.OpenHandCursor
             onPressed: function(mouse) {
                 if (mouse.button === Qt.LeftButton || mouse.button === Qt.MiddleButton) {
@@ -125,33 +138,107 @@ Window {
                     overlay.windowStart = Qt.point(overlay.x, overlay.y)
                     overlay.dragButton = mouse.button
                     overlay.suppressClick = false
-                    if (mouse.button === Qt.LeftButton) overlay.dragging = overlay.startSystemMove()
+                    overlay.dragging = false
+                    nativeMoving = false
                 }
             }
             onPositionChanged: function(mouse) {
                 if (overlay.dragButton === Qt.NoButton || !(mouse.buttons & overlay.dragButton)) return
                 var dx = mouse.x - overlay.dragStart.x
                 var dy = mouse.y - overlay.dragStart.y
-                if (Math.sqrt(dx * dx + dy * dy) >= 4) overlay.suppressClick = true
-                if (overlay.dragging) return
-                if (Math.sqrt(dx * dx + dy * dy) >= 4) overlay.dragging = true
-                if (overlay.dragging) { overlay.x = Math.round(overlay.windowStart.x + dx); overlay.y = Math.round(overlay.windowStart.y + dy) }
+                var distance = Math.sqrt(dx * dx + dy * dy)
+                if (distance >= 6 && !overlay.dragging) {
+                    overlay.suppressClick = true
+                    nativeMoving = overlay.dragButton === Qt.LeftButton ? overlay.startSystemMove() : false
+                    overlay.dragging = true
+                }
+                if (overlay.dragging && !nativeMoving) {
+                    overlay.x = Math.round(overlay.windowStart.x + dx)
+                    overlay.y = Math.round(overlay.windowStart.y + dy)
+                }
             }
-            onReleased: function(mouse) { if (mouse.button === overlay.dragButton) { overlay.dragging = false; overlay.dragButton = Qt.NoButton } }
-            onCanceled: { overlay.dragging = false; overlay.dragButton = Qt.NoButton }
-            onClicked: function(mouse) {
-                if (mouse.button === Qt.LeftButton) { if (!overlay.suppressClick) assistant.toggleRecording(); overlay.suppressClick = false }
-                else if (mouse.button === Qt.RightButton) menu.openAboveOrb()
+            onReleased: function(mouse) {
+                if (mouse.button !== overlay.dragButton) return
+                var startRecording = mouse.button === Qt.LeftButton && !overlay.suppressClick && !overlay.dragging
+                overlay.dragging = false
+                overlay.dragButton = Qt.NoButton
+                nativeMoving = false
+                if (startRecording) assistant.toggleRecording()
             }
+            onCanceled: { overlay.dragging = false; overlay.dragButton = Qt.NoButton; nativeMoving = false }
+            onClicked: function(mouse) { if (mouse.button === Qt.RightButton) menu.openAboveOrb() }
         }
     }
 
     Component.onCompleted: Ui.Theme.dark = assistant.darkTheme
 
-    ToolTip { id: toast; timeout: 3500; x: 16; y: 12 }
+    Popup {
+        id: thoughtToast
+        objectName: "thoughtToast"
+        width: 280
+        padding: 14
+        leftPadding: 34
+        popupType: Popup.Window
+        closePolicy: Popup.NoAutoClose
+        dim: false
+
+        function showMessage(message, autoHide) {
+            thoughtText.text = message
+            thoughtText.opacity = 0
+            thoughtReveal.start()
+            var position = overlay.contentItem.mapToGlobal(Qt.point(overlay.width + 14, Math.round((overlay.height - implicitHeight) / 2)))
+            x = position.x
+            y = position.y
+            if (!visible)
+                open()
+            if (autoHide)
+                thoughtHideTimer.restart()
+            else
+                thoughtHideTimer.stop()
+        }
+
+        contentItem: Label {
+            id: thoughtText
+            objectName: "thoughtText"
+            color: Ui.Theme.text
+            font.family: Ui.Theme.family
+            font.pixelSize: Ui.Theme.fontSize
+            wrapMode: Text.Wrap
+            verticalAlignment: Text.AlignVCenter
+        }
+        background: Item {
+            Rectangle {
+                x: 20
+                width: parent.width - 20
+                height: parent.height
+                radius: 18
+                color: Ui.Theme.surface
+                border.color: Ui.Theme.border
+                border.width: 1
+            }
+            Rectangle { x: 9; y: parent.height - 26; width: 14; height: 14; radius: 7; color: Ui.Theme.surface }
+            Rectangle { x: 1; y: parent.height - 11; width: 8; height: 8; radius: 4; color: Ui.Theme.surface }
+        }
+        enter: Transition {
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 180; easing.type: Easing.OutQuad }
+        }
+        exit: Transition {
+            NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 150; easing.type: Easing.InQuad }
+        }
+        SequentialAnimation {
+            id: thoughtReveal
+            NumberAnimation { target: thoughtText; property: "opacity"; to: 1; duration: 180; easing.type: Easing.OutQuad }
+        }
+        Timer {
+            id: thoughtHideTimer
+            interval: 4000
+            onTriggered: thoughtToast.close()
+        }
+    }
     Connections {
         target: assistant
-        function onNotification(message) { toast.text = message; toast.open() }
+        function onProcessingNotification(message) { thoughtToast.showMessage(message, false) }
+        function onNotification(message) { thoughtToast.showMessage(message, true) }
         function onThemeChanged() { Ui.Theme.dark = assistant.darkTheme }
     }
     Menu {
@@ -169,6 +256,14 @@ Window {
             enabled: assistant.status === "idle" || assistant.status === "recording"
             checked: assistant.status === "recording"
             onTriggered: assistant.toggleRecording()
+        }
+        Ui.MenuDivider {}
+        Ui.MenuEntry {
+            objectName: "pinMenuItem"
+            iconName: "pin"
+            text: "Закрепить поверх всех окон"
+            checked: assistant.alwaysOnTop
+            onTriggered: assistant.toggleAlwaysOnTop()
         }
         Ui.MenuDivider {}
         Ui.MenuEntry { iconName: "note"; text: "Заметки"; onTriggered: assistant.showNotes() }

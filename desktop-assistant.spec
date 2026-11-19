@@ -13,7 +13,7 @@ for name in REQUIRED_FILES:
     if file_sha256(model / name) != manifest["sha256"][name]:
         raise RuntimeError(f"Model checksum mismatch: {name}")
 
-datas = collect_data_files("desktop_assistant", includes=["qml/*.qml", "qml/notes/*.qml", "qml/notes/qmldir", "assets/*.png", "assets/*.ico"])
+datas = collect_data_files("desktop_assistant", includes=["qml/*.qml", "qml/notes/*.qml", "qml/notes/qmldir", "assets/*.png", "assets/*.ico", "assets/*.wav"])
 datas += collect_data_files("faster_whisper")  # Includes the local Silero VAD model.
 datas += [(str(model / name), "models/faster-whisper-small") for name in (*REQUIRED_FILES, "manifest.json", "README.md") if (model / name).is_file()]
 binaries = collect_dynamic_libs("ctranslate2") + collect_dynamic_libs("onnxruntime")

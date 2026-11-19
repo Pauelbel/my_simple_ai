@@ -5,8 +5,8 @@ import json
 import re
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Property, QSettings, QUrl, Signal, Slot
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QPalette, QTextBlockFormat, QTextCursor, QTextDocument
+from PySide6.QtCore import QEvent, QObject, Property, QSettings, Qt, QUrl, Signal, Slot
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QImageReader, QPalette, QTextBlockFormat, QTextCursor, QTextDocument
 from PySide6.QtQuickWidgets import QQuickWidget
 from PySide6.QtWidgets import QFileDialog, QInputDialog, QMainWindow, QMessageBox
 
@@ -64,7 +64,16 @@ class NotesBridge(QObject):
     def currentPath(self): return self._path
 
     @Property(str, notify=changed)
-    def title(self): return Path(self._path).stem if self._path else "Выберите заметку"
+    def title(self):
+        return (self.repository.presentation(self._content, Path(self._path).stem)[0]
+                if self._path else "Выберите заметку")
+
+    @Property(str, notify=changed)
+    def breadcrumbs(self):
+        if not self._path:
+            return ""
+        parts = list(Path(self._path).parts[:-1]) + [self.title]
+        return "  ›  ".join(parts)
 
     @Property(str, notify=documentChanged)
     def content(self): return self._content
@@ -110,19 +119,25 @@ class NotesBridge(QObject):
         )
         # QTextDocument created by QML does not inherit our base URL. Absolute
         # file URLs keep library-local Markdown images visible in the preview.
-        markdown = self._content
+        _, markdown = self.repository.split_front_matter(self._content)
         if self._path:
             note_dir = self.repository.resolve(self._path).parent
             def absolute_image(match):
-                target = match.group(2)
+                target = match.group(2).strip()
+                if target.startswith("<") and target.endswith(">"):
+                    target = target[1:-1].strip()
                 url = QUrl(target)
-                if url.scheme() or target.startswith("/"):
+                if url.scheme() in ("http", "https", "data"):
                     return match.group(0)
-                image = (note_dir / target).resolve()
-                if image == self.repository.root.resolve() or self.repository.root.resolve() in image.parents:
-                    return f"![{match.group(1)}]({QUrl.fromLocalFile(str(image)).toString()})"
-                return match.group(0)
-            markdown = re.sub(r"!\[([^\]]*)\]\(([^)\s]+)\)", absolute_image, markdown)
+                if url.scheme() == "file":
+                    image = Path(url.toLocalFile())
+                else:
+                    image = Path(target)
+                    if not image.is_absolute():
+                        image = note_dir / image
+                encoded = bytes(QUrl.fromLocalFile(str(image.resolve())).toEncoded()).decode()
+                return f"![{match.group(1)}]({encoded})"
+            markdown = re.sub(r"!\[([^\]]*)\]\(([^\n]+?)\)", absolute_image, markdown)
         # Qt's Markdown parser requires explicit link syntax. Make pasted bare
         # web addresses clickable without touching existing Markdown links.
         markdown = re.sub(
@@ -139,7 +154,16 @@ class NotesBridge(QObject):
             fmt.setBottomMargin(10)
             cursor.setBlockFormat(fmt)
             block = block.next()
-        self._preview_cache = (key, doc.toHtml())
+        html = doc.toHtml()
+        def constrain_image(match):
+            source = match.group(1)
+            local = QUrl(source).toLocalFile()
+            size = QImageReader(local).size() if local else None
+            if size and size.isValid() and size.width() > 860:
+                return match.group(0).replace("<img ", f'<img width="860" ')
+            return match.group(0)
+        html = re.sub(r'<img[^>]*src="([^"]+)"[^>]*>', constrain_image, html)
+        self._preview_cache = (key, html)
         return self._preview_cache[1]
 
     @Slot(str, int, QColor)
@@ -463,6 +487,20 @@ class NotesWindow(QMainWindow):
         if self.view.status() == QQuickWidget.Status.Error:
             raise RuntimeError("\n".join(error.toString() for error in self.view.errors()))
         self.setCentralWidget(self.view)
+        # QQuick ScrollView consumes wheel input before nested QML handlers on
+        # some Qt/platform combinations. Catch Ctrl+wheel at widget level.
+        self.view.installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        if (watched is self.view and event.type() == QEvent.Type.Wheel
+                and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                and self.bridge.currentPath and not self.bridge.editing):
+            delta = event.angleDelta().y() or event.pixelDelta().y()
+            if delta:
+                self.bridge.zoomPreview(1 if delta > 0 else -1)
+                event.accept()
+                return True
+        return super().eventFilter(watched, event)
 
     def closeEvent(self, event):
         if self.bridge.save(): super().closeEvent(event)

@@ -4,8 +4,8 @@ from PySide6.QtCore import QObject, Property, Qt, Signal, Slot
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QMessageBox
 
-from desktop_assistant.core.windowing import set_always_on_top
 from desktop_assistant.dictation.controller import DictationController
+from desktop_assistant.core.global_hotkey import GlobalHotkey
 from desktop_assistant.dictation.speech_model import model_directory, validate_model
 from desktop_assistant.history.controller import HistoryController
 from desktop_assistant.history.repository import RecognitionHistory
@@ -24,15 +24,16 @@ class AssistantController(QObject):
         super().__init__()
         self.app = app
         self.settings = Settings()
-        self.history = HistoryController(RecognitionHistory())
         self.notes = NotesController(NotesRepository(self.settings.values.get("notes_directory") or None))
+        self.history = HistoryController(RecognitionHistory(), self.notes.dark_theme)
         self.dictation = DictationController(app, self.settings, self.history.repository)
+        self.record_hotkey = GlobalHotkey(self.settings.values.get("record_hotkey", "Ctrl+Shift+Space"))
+        self.record_hotkey.activated.connect(self.dictation.toggleRecording)
         self._error_dialogs: set[QMessageBox] = set()
-        self.notes.set_always_on_top(self.alwaysOnTop)
-        self.history.set_always_on_top(self.alwaysOnTop)
         self.dictation.notification.connect(self.notification.emit)
         self.dictation.recognized.connect(lambda _text: self.history.refresh())
         self.notes.themeChanged.connect(self.themeChanged.emit)
+        self.notes.themeChanged.connect(lambda: self.history.set_dark_theme(self.notes.dark_theme))
 
     @Property(bool, notify=themeChanged)
     def darkTheme(self) -> bool:
@@ -52,8 +53,6 @@ class AssistantController(QObject):
             self.notification.emit(f"Не удалось сохранить настройку закрепления: {error}")
             return
         self.alwaysOnTopChanged.emit()
-        self.notes.set_always_on_top(self.alwaysOnTop)
-        self.history.set_always_on_top(self.alwaysOnTop)
 
     @Slot(str)
     def showError(self, message: str) -> None:
@@ -61,7 +60,6 @@ class AssistantController(QObject):
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self._error_dialogs.add(dialog)
         dialog.finished.connect(lambda: self._error_dialogs.discard(dialog))
-        set_always_on_top(dialog, self.alwaysOnTop)
         dialog.show()
 
     @Slot()
@@ -74,10 +72,11 @@ class AssistantController(QObject):
 
     @Slot()
     def showSettings(self) -> None:
-        dialog = SettingsDialog(self.settings, self.notes.root, self._save_preferences, self.alwaysOnTop)
+        dialog = SettingsDialog(self.settings, self.notes.root, self._save_preferences, self.darkTheme)
         dialog.exec()
 
-    def _save_preferences(self, threads: int, folder: str, model: str | None = None) -> bool:
+    def _save_preferences(self, threads: int, folder: str, model: str | None = None,
+                          hotkey: str | None = None) -> bool:
         path = Path(folder).expanduser().resolve()
         if not path.is_dir():
             raise ValueError("Папка заметок не существует")
@@ -92,7 +91,11 @@ class AssistantController(QObject):
         values = {"speech_cpu_threads": threads, "notes_directory": str(path)}
         if model_path is not None:
             values["speech_model_directory"] = str(model_path)
+        if hotkey is not None:
+            values["record_hotkey"] = hotkey
         self.settings.save(values)
+        if hotkey is not None:
+            self.record_hotkey.set_sequence(hotkey)
         if changed:
             self.notes.replace_repository(repository)
         return True

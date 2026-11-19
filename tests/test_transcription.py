@@ -184,7 +184,8 @@ class DictationFlowTests(unittest.TestCase):
                 self.transcribe = Mock(return_value=True)
         self.recorder, self.transcriber = FakeRecorder(), FakeTranscriber()
         self.history = Mock()
-        self.app_settings = SimpleNamespace(values={'speech_cpu_threads': 4, 'always_on_top': True})
+        self.app_settings = SimpleNamespace(values={'speech_cpu_threads': 4, 'always_on_top': True,
+                                                    'record_hotkey': 'Ctrl+Shift+Space'})
         self.app_settings.save = Mock(side_effect=lambda updates: self.app_settings.values.update(updates))
         with patch('desktop_assistant.dictation.controller.AudioRecorder', return_value=self.recorder), patch('desktop_assistant.dictation.controller.Transcriber', return_value=self.transcriber), patch('desktop_assistant.controller.RecognitionHistory', return_value=self.history), patch('desktop_assistant.controller.NotesRepository'), patch('desktop_assistant.controller.Settings', return_value=self.app_settings):
             self.controller = AssistantController(self.app)
@@ -197,7 +198,9 @@ class DictationFlowTests(unittest.TestCase):
         self.assertEqual(self.dictation.status, 'recording')
         self.dictation.toggleRecording()
         self.assertEqual(self.dictation.status, 'processing')
-        self.transcriber.transcribe.assert_called_once_with('/tmp/test.wav', {'speech_cpu_threads': 4, 'always_on_top': True})
+        self.transcriber.transcribe.assert_called_once_with(
+            '/tmp/test.wav', {'speech_cpu_threads': 4, 'always_on_top': True,
+                              'record_hotkey': 'Ctrl+Shift+Space'})
         self.dictation.toggleRecording()
         self.recorder.start.assert_called_once()
         self.transcriber.completed.emit('Привет, мир!')
@@ -229,7 +232,7 @@ class DictationFlowTests(unittest.TestCase):
         self.assertEqual(self.dictation.status, 'idle')
         self.assertIn('Распознавание уже выполняется', self.notifications[-1])
 
-    def test_always_on_top_toggle_updates_open_history_and_notes(self):
+    def test_always_on_top_toggle_only_affects_overlay_setting(self):
         from PySide6.QtCore import Qt
         from PySide6.QtWidgets import QDialog
         self.history.list.return_value = []
@@ -239,9 +242,8 @@ class DictationFlowTests(unittest.TestCase):
         notes.show()
         history = self.controller.history.window
         try:
-            self.assertTrue(history.windowFlags() & Qt.WindowStaysOnTopHint)
-            self.controller.notes.set_always_on_top(True)
-            self.assertTrue(notes.windowFlags() & Qt.WindowStaysOnTopHint)
+            self.assertFalse(history.windowFlags() & Qt.WindowStaysOnTopHint)
+            self.assertFalse(notes.windowFlags() & Qt.WindowStaysOnTopHint)
 
             self.controller.toggleAlwaysOnTop()
             self.assertFalse(self.controller.alwaysOnTop)
@@ -251,8 +253,8 @@ class DictationFlowTests(unittest.TestCase):
 
             self.controller.toggleAlwaysOnTop()
             self.assertTrue(self.controller.alwaysOnTop)
-            self.assertTrue(history.windowFlags() & Qt.WindowStaysOnTopHint)
-            self.assertTrue(notes.windowFlags() & Qt.WindowStaysOnTopHint)
+            self.assertFalse(history.windowFlags() & Qt.WindowStaysOnTopHint)
+            self.assertFalse(notes.windowFlags() & Qt.WindowStaysOnTopHint)
         finally:
             history.close()
             notes.close()

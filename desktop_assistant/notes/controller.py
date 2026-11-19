@@ -2,8 +2,6 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QSettings, Signal
 
-from desktop_assistant.core.windowing import set_always_on_top
-
 from .repository import NotesRepository
 from .window import NotesWindow
 
@@ -15,7 +13,6 @@ class NotesController(QObject):
         super().__init__()
         self.repository = repository
         self.window: NotesWindow | None = None
-        self._always_on_top = True
 
     @property
     def root(self) -> Path:
@@ -27,16 +24,10 @@ class NotesController(QObject):
             return self.window.bridge.dark
         return QSettings().value("notes/dark", True, type=bool)
 
-    def set_always_on_top(self, enabled: bool) -> None:
-        self._always_on_top = enabled
-        if self.window is not None:
-            set_always_on_top(self.window, enabled)
-
     def show(self) -> None:
         if self.window is None:
             self.window = NotesWindow(self.repository)
             self.window.bridge.themeChanged.connect(self.themeChanged.emit)
-        set_always_on_top(self.window, self._always_on_top)
         self.window.showNormal()
         self.window.raise_()
         self.window.activateWindow()

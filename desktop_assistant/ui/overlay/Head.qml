@@ -109,7 +109,7 @@ Window {
         Ui.MenuEntry {
             objectName: "pinMenuItem"
             iconName: "pin"
-            text: "Закрепить поверх всех окон"
+            text: "Анимация поверх всех окон"
             checked: assistant.alwaysOnTop
             onTriggered: assistant.toggleAlwaysOnTop()
         }

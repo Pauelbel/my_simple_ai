@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import shutil
 
 from ..core.paths import app_data_dir
@@ -31,6 +32,42 @@ class NotesRepository:
 
     def read(self, relative: str) -> str:
         return self.resolve(relative).read_text(encoding="utf-8")
+
+    @staticmethod
+    def split_front_matter(content: str) -> tuple[dict[str, str], str]:
+        """Return simple YAML front matter and the visible Markdown body."""
+        lines = content.splitlines()
+        if not lines or lines[0].strip() != "---":
+            return {}, content
+        try:
+            closing = next(index for index in range(1, len(lines)) if lines[index].strip() == "---")
+        except StopIteration:
+            return {}, content
+        metadata = {}
+        for line in lines[1:closing]:
+            if ":" in line:
+                key, value = line.split(":", 1)
+                metadata[key.strip().casefold()] = value.strip().strip('"\'')
+        return metadata, "\n".join(lines[closing + 1:]).lstrip("\n")
+
+    @classmethod
+    def presentation(cls, content: str, fallback: str) -> tuple[str, str]:
+        metadata, body = cls.split_front_matter(content)
+        heading = next((match.group(1).strip() for line in body.splitlines()
+                        if (match := re.match(r"^#{1,6}\s+(.+?)\s*$", line))), "")
+        title = metadata.get("title") or heading or fallback
+        visible = re.sub(r"!\[[^\]]*\]\([^\n]*\)", "", body)
+        visible = re.sub(r"\[([^\]]+)\]\([^\n]*?\)", r"\1", visible)
+        visible = re.sub(r"<[^>]+>", "", visible)
+        candidates = []
+        for line in visible.splitlines():
+            if re.match(r"^\s*#{1,6}\s+", line):
+                continue
+            clean = re.sub(r"^\s*(?:#{1,6}|[-+*>]|\d+[.)])\s*", "", line).strip()
+            clean = re.sub(r"[`*_~]", "", clean).strip()
+            if clean and clean != title:
+                candidates.append(clean)
+        return title, (candidates[0] if candidates else "Нет дополнительного текста")
 
     def save(self, relative: str, content: str) -> None:
         path = self.resolve(relative)
@@ -139,8 +176,6 @@ class NotesRepository:
             content = path.read_text(encoding="utf-8")
             if needle and needle not in path.stem.casefold() and needle not in content.casefold():
                 continue
-            lines = [line.strip().lstrip("#").strip() for line in content.splitlines() if line.strip()]
-            title = lines[0] if lines else path.stem
-            excerpt = next((line for line in lines[1:] if line), "Нет дополнительного текста")
+            title, excerpt = self.presentation(content, path.stem)
             notes.append({"path": path.relative_to(self.root).as_posix(), "title": title, "excerpt": excerpt[:110], "modified": path.stat().st_mtime})
         return sorted(notes, key=lambda item: item["modified"], reverse=True)

@@ -128,7 +128,11 @@ Rectangle {
                 RowLayout {
                     Layout.fillWidth: true; Layout.preferredHeight: Ui.Theme.barHeight
                     Layout.leftMargin: 20; Layout.rightMargin: 12; spacing: 3
-                    Text { text: notesBridge.title; elide: Text.ElideRight; Layout.fillWidth: true; font.family: Ui.Theme.family; font.pixelSize: Ui.Theme.headingFont; font.weight: Font.DemiBold; color: Ui.Theme.text }
+                    ColumnLayout {
+                        Layout.fillWidth: true; spacing: 1
+                        Text { text: notesBridge.title; elide: Text.ElideRight; Layout.fillWidth: true; font.family: Ui.Theme.family; font.pixelSize: Ui.Theme.headingFont; font.weight: Font.DemiBold; color: Ui.Theme.text }
+                        Text { visible: notesBridge.currentPath !== ""; text: notesBridge.breadcrumbs; elide: Text.ElideMiddle; Layout.fillWidth: true; font.family: Ui.Theme.family; font.pixelSize: Ui.Theme.smallFont; color: Ui.Theme.muted }
+                    }
                     Ui.ActionButton { iconName: "sidebar"; hint: (notesBridge.libraryVisible ? "Скрыть" : "Показать") + " библиотеку · Ctrl+Shift+B"; checked: notesBridge.libraryVisible; onClicked: notesBridge.toggleLibrary() }
                     Ui.ActionButton { iconName: "columns"; hint: (notesBridge.listVisible ? "Скрыть" : "Показать") + " список заметок · Ctrl+Shift+L"; checked: notesBridge.listVisible; onClicked: notesBridge.toggleNoteList() }
                     Rectangle { width: 1; height: 20; color: Ui.Theme.border; Layout.leftMargin: 5; Layout.rightMargin: 5 }
@@ -218,7 +222,8 @@ Rectangle {
                         TextArea {
                             id: preview
                             objectName: "markdownPreview"
-                            width: previewScroll.availableWidth
+                            width: Math.min(previewScroll.availableWidth, 980)
+                            x: Math.max(0, (previewScroll.availableWidth - width) / 2)
                             text: notesBridge.previewHtml
                             textFormat: TextEdit.RichText
                             wrapMode: TextEdit.Wrap
@@ -230,10 +235,6 @@ Rectangle {
                             background: null
                             Accessible.name: "Просмотр Markdown"
                             onLinkActivated: (link) => notesBridge.openLink(link)
-                            WheelHandler {
-                                acceptedModifiers: Qt.ControlModifier
-                                onWheel: (event) => notesBridge.zoomPreview(event.angleDelta.y)
-                            }
                         }
                     }
                     Column {
@@ -248,7 +249,20 @@ Rectangle {
                 RowLayout {
                     Layout.fillWidth: true; Layout.preferredHeight: 32; Layout.leftMargin: 20; Layout.rightMargin: 20
                     Text { text: !notesBridge.currentPath ? "Нет открытой заметки" : notesBridge.dirty ? "Есть несохранённые изменения" : "Сохранено"; color: notesBridge.dirty ? Ui.Theme.accent : Ui.Theme.muted; font.family: Ui.Theme.family; font.pixelSize: Ui.Theme.smallFont; Layout.fillWidth: true; elide: Text.ElideRight }
-                    Text { text: notesBridge.currentPath ? notesBridge.statistics + (!notesBridge.editing ? " · " + notesBridge.previewZoom + "%" : "") : "Markdown"; color: Ui.Theme.muted; font.family: Ui.Theme.family; font.pixelSize: Ui.Theme.smallFont }
+                    Text { text: notesBridge.currentPath ? notesBridge.statistics : "Markdown"; color: Ui.Theme.muted; font.family: Ui.Theme.family; font.pixelSize: Ui.Theme.smallFont }
+                    Row {
+                        visible: notesBridge.currentPath !== "" && !notesBridge.editing
+                        spacing: 1
+                        Ui.ActionButton { width: 28; height: 28; iconName: "zoom-out"; hint: "Уменьшить масштаб · Ctrl+колесо вниз"; enabled: notesBridge.previewZoom > 60; onClicked: notesBridge.zoomPreview(-1) }
+                        Text {
+                            width: 46; height: 28; text: notesBridge.previewZoom + "%"
+                            horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+                            color: Ui.Theme.muted; font.family: Ui.Theme.family; font.pixelSize: Ui.Theme.smallFont
+                            ToolTip.visible: zoomReset.containsMouse; ToolTip.text: "Сбросить масштаб · Ctrl+0"
+                            MouseArea { id: zoomReset; anchors.fill: parent; hoverEnabled: true; onClicked: notesBridge.zoomPreview(0) }
+                        }
+                        Ui.ActionButton { width: 28; height: 28; iconName: "zoom-in"; hint: "Увеличить масштаб · Ctrl+колесо вверх"; enabled: notesBridge.previewZoom < 200; onClicked: notesBridge.zoomPreview(1) }
+                    }
                 }
             }
         }

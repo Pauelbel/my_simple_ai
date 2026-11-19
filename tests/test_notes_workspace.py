@@ -8,7 +8,8 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QT_QUICK_BACKEND", "software")
 
-from PySide6.QtCore import QObject, Qt
+from PySide6.QtCore import QObject, QPoint, QPointF, Qt
+from PySide6.QtGui import QWheelEvent
 from PySide6.QtQuickWidgets import QQuickWidget
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QInputDialog
@@ -172,8 +173,42 @@ class NotesWorkspaceTests(unittest.TestCase):
         before = self.bridge.previewZoom
         self.bridge.zoomPreview(1)
         self.assertEqual(self.bridge.previewZoom, min(200, before + 10))
+        enlarged = self.bridge.previewZoom
+        self.bridge.zoomPreview(-1)
+        self.assertEqual(self.bridge.previewZoom, max(60, enlarged - 10))
         self.bridge.zoomPreview(0)
         self.assertEqual(self.bridge.previewZoom, 100)
+
+    def test_front_matter_and_image_paths_with_spaces_are_presented_cleanly(self):
+        image_dir = self.repo.resolve("Работа/Вложенная/images")
+        image_dir.mkdir()
+        image = image_dir / "схема агента.png"
+        image.write_bytes(b"not-a-real-image")
+        self.repo.save(
+            "Работа/Вложенная/Метаданные.md",
+            '---\ntitle: "Красивый заголовок"\ntags: ai\n---\n\n# Скрытый заголовок\n\nОписание заметки.\n\n![Схема](images/схема агента.png)',
+        )
+        self.bridge.openNote("Работа/Вложенная/Метаданные.md")
+        self.bridge.setEditing(False)
+        self.assertEqual(self.bridge.title, "Красивый заголовок")
+        self.assertNotIn("title:", self.bridge.previewHtml)
+        self.assertIn("%20", self.bridge.previewHtml)
+        summary = self.repo.note_summaries("Работа/Вложенная")[0]
+        self.assertEqual(summary["title"], "Красивый заголовок")
+        self.assertEqual(summary["excerpt"], "Описание заметки.")
+
+    def test_ctrl_wheel_changes_preview_zoom_through_window(self):
+        self.bridge.openNote("Вторая.md")
+        self.bridge.setEditing(False)
+        self.bridge.zoomPreview(0)
+        event = QWheelEvent(
+            QPointF(500, 300), QPointF(500, 300), QPoint(), QPoint(0, -120),
+            Qt.MouseButton.NoButton, Qt.KeyboardModifier.ControlModifier,
+            Qt.ScrollPhase.ScrollUpdate, False,
+        )
+        QApplication.sendEvent(self.window.view, event)
+        self.assertTrue(event.isAccepted())
+        self.assertEqual(self.bridge.previewZoom, 90)
 
     def test_changing_notes_directory_saves_edits_and_persists(self):
         base = Path(self.temp.name)

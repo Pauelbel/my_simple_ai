@@ -4,7 +4,7 @@ from pathlib import Path
 from .paths import app_data_dir
 
 
-DEFAULTS = {"speech_cpu_threads": 4, "always_on_top": True}
+DEFAULTS = {"speech_cpu_threads": 4, "always_on_top": True, "notes_directory": "", "speech_model_directory": ""}
 
 
 
@@ -21,5 +21,6 @@ class Settings:
             pass
 
     def save(self, values: dict) -> None:
-        self.values.update({key: values.get(key, self.values[key]) for key in DEFAULTS})
-        self.path.write_text(json.dumps(self.values, ensure_ascii=False, indent=2), encoding="utf-8")
+        updated = self.values | {key: values.get(key, self.values[key]) for key in DEFAULTS}
+        self.path.write_text(json.dumps(updated, ensure_ascii=False, indent=2), encoding="utf-8")
+        self.values = updated

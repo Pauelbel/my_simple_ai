@@ -6,9 +6,9 @@ from ..paths import app_data_dir
 class NotesRepository:
     """Filesystem-backed Markdown repository with path traversal protection."""
 
-    def __init__(self) -> None:
-        self.root = app_data_dir() / "notes"
-        self.root.mkdir(exist_ok=True)
+    def __init__(self, root: str | Path | None = None) -> None:
+        self.root = Path(root).expanduser().resolve() if root else app_data_dir() / "notes"
+        self.root.mkdir(parents=True, exist_ok=True)
 
     def resolve(self, relative: str) -> Path:
         candidate = (self.root / relative).resolve()

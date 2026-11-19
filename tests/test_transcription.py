@@ -95,6 +95,24 @@ class TranscriptionTests(unittest.TestCase):
             self.assertIs(first, self.worker._load_model({"speech_cpu_threads": 2}))
         factory.assert_called_once_with(str(self.root), device="cpu", compute_type="int8", cpu_threads=2, num_workers=1, local_files_only=True)
 
+    def test_selected_model_is_checked_loaded_and_reloaded_when_changed(self):
+        first = self.root / "first"
+        second = self.root / "second"
+        for directory in (first, second):
+            directory.mkdir()
+            for name in REQUIRED_FILES:
+                (directory / name).write_text("{}")
+        factory = Mock(side_effect=[object(), object()])
+        with patch("desktop_assistant.services.transcription.find_spec", return_value=True), \
+             patch.dict(sys.modules, {"faster_whisper": SimpleNamespace(WhisperModel=factory)}):
+            self.worker.check_ready({"speech_model_directory": str(first)})
+            self.worker._load_model({"speech_model_directory": str(first)})
+            self.worker._load_model({"speech_model_directory": str(second)})
+        self.assertEqual([call.args[0] for call in factory.call_args_list], [str(first), str(second)])
+        (first / "tokenizer.json").unlink()
+        with self.assertRaisesRegex(RuntimeError, "tokenizer.json"):
+            self.worker.check_ready({"speech_model_directory": str(first)})
+
     def test_missing_tokenizer_is_rejected_before_model_import(self):
         for name in REQUIRED_FILES:
             (self.root / name).write_text("{}")
@@ -172,8 +190,6 @@ class DictationFlowTests(unittest.TestCase):
             self.controller = AssistantController(self.app)
         self.notifications=[]
         self.controller.notification.connect(self.notifications.append)
-        self.processing_notifications=[]
-        self.controller.processingNotification.connect(self.processing_notifications.append)
 
     def test_click_record_stop_copy_history_and_cleanup(self):
         self.controller.toggleRecording()
@@ -257,7 +273,7 @@ class DictationFlowTests(unittest.TestCase):
         finally:
             window.close()
 
-    def test_qml_click_starts_recording_and_messages_share_thought_bubble(self):
+    def test_qml_click_starts_recording_and_processing_indicator_animates(self):
         from pathlib import Path
         from PySide6.QtCore import QObject, QPoint, QUrl, Qt
         from PySide6.QtQml import QQmlApplicationEngine
@@ -274,6 +290,14 @@ class DictationFlowTests(unittest.TestCase):
             self.assertTrue(window.flags() & Qt.WindowStaysOnTopHint)
             self.assertTrue(window.flags() & Qt.WindowDoesNotAcceptFocus)
             self.assertFalse(window.flags() & Qt.Tool)
+            QTest.mouseClick(window, Qt.RightButton, Qt.NoModifier, QPoint(68, 68))
+            QTest.qWait(50)
+            menu = window.findChild(QObject, 'assistantMenu')
+            self.assertTrue(menu.property('visible'))
+            self.assertFalse(window.flags() & Qt.WindowDoesNotAcceptFocus)
+            menu.close()
+            QTest.qWait(150)
+            self.assertTrue(window.flags() & Qt.WindowDoesNotAcceptFocus)
             QTest.mouseClick(window, Qt.LeftButton, Qt.NoModifier, QPoint(68, 68))
             QTest.qWait(30)
             self.recorder.start.assert_called_once()
@@ -281,19 +305,18 @@ class DictationFlowTests(unittest.TestCase):
 
             sound = window.findChild(QObject, 'recordingStartSound')
             self.assertTrue(sound.property('source').toString().endswith('recording-start.wav'))
-            thought_toast = window.findChild(QObject, 'thoughtToast')
-            thought_text = window.findChild(QObject, 'thoughtText')
-            self.transcriber.progress.emit('Распознаю речь на устройстве…')
-            QTest.qWait(220)
-            self.assertTrue(thought_toast.property('visible'))
-            self.assertEqual(thought_text.property('text'), 'Распознаю речь на устройстве…')
-            self.assertEqual(self.processing_notifications, ['Распознаю речь на устройстве…'])
-            self.assertEqual(self.notifications, [])
-
-            self.controller.notification.emit('Текст скопирован в буфер обмена')
-            QTest.qWait(220)
-            self.assertTrue(thought_toast.property('visible'))
-            self.assertEqual(thought_text.property('text'), 'Текст скопирован в буфер обмена')
+            indicator = window.findChild(QObject, 'processingIndicator')
+            self.assertFalse(indicator.property('visible'))
+            self.controller.toggleRecording()
+            QTest.qWait(100)
+            self.assertTrue(indicator.property('visible'))
+            phase = indicator.property('phase')
+            QTest.qWait(100)
+            self.assertNotEqual(indicator.property('phase'), phase)
+            self.transcriber.completed.emit('Готово')
+            QTest.qWait(30)
+            self.assertFalse(indicator.property('visible'))
+            self.assertIsNone(window.findChild(QObject, 'thoughtToast'))
 
             self.controller.toggleAlwaysOnTop()
             QTest.qWait(50)
@@ -304,9 +327,6 @@ class DictationFlowTests(unittest.TestCase):
             QTest.qWait(50)
             self.assertTrue(window.flags() & Qt.WindowStaysOnTopHint)
         finally:
-            thought_toast = window.findChild(QObject, 'thoughtToast')
-            if thought_toast is not None:
-                thought_toast.close()
             window.close()
             window.deleteLater()
             self.app.processEvents()

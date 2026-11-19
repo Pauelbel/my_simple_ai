@@ -1,4 +1,4 @@
-"""Build-time download only. The application itself never downloads models."""
+"""Download the speech model for local use."""
 import json
 import sys
 import shutil

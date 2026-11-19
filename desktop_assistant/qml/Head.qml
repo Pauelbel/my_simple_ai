@@ -7,10 +7,11 @@ import "notes" as Ui
 Window {
     id: overlay
     width: 136; height: 136; visible: true; color: "transparent"
-    flags: Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus | (assistant.alwaysOnTop ? Qt.WindowStaysOnTopHint : 0)
+    flags: Qt.FramelessWindowHint | (menuFocus ? 0 : Qt.WindowDoesNotAcceptFocus) | (assistant.alwaysOnTop ? Qt.WindowStaysOnTopHint : 0)
     title: "Desktop Assistant"
 
     property point dragStart: Qt.point(0, 0)
+    property bool menuFocus: false
     property point windowStart: Qt.point(0, 0)
     property int dragButton: Qt.NoButton
     property bool dragging: false
@@ -124,6 +125,31 @@ Window {
             }
         }
 
+        Item {
+            id: processingIndicator
+            objectName: "processingIndicator"
+            anchors.centerIn: parent
+            width: 42; height: 18
+            visible: assistant.status === "processing"
+            property real phase: 0
+            NumberAnimation on phase {
+                from: 0; to: Math.PI * 2; duration: 1100
+                loops: Animation.Infinite
+                running: processingIndicator.visible
+            }
+            Repeater {
+                model: 3
+                Rectangle {
+                    required property int index
+                    width: 6; height: 6; radius: 3
+                    x: 5 + index * 13
+                    y: 6 - 4 * Math.sin(processingIndicator.phase - index * 0.9)
+                    opacity: 0.65 + 0.35 * (0.5 + 0.5 * Math.sin(processingIndicator.phase - index * 0.9))
+                    color: "#fff4dc"
+                }
+            }
+        }
+
         MouseArea {
             id: mouseArea
             objectName: "orbMouseArea"
@@ -172,73 +198,9 @@ Window {
 
     Component.onCompleted: Ui.Theme.dark = assistant.darkTheme
 
-    Popup {
-        id: thoughtToast
-        objectName: "thoughtToast"
-        width: 280
-        padding: 14
-        leftPadding: 34
-        popupType: Popup.Window
-        closePolicy: Popup.NoAutoClose
-        dim: false
-
-        function showMessage(message, autoHide) {
-            thoughtText.text = message
-            thoughtText.opacity = 0
-            thoughtReveal.start()
-            var position = overlay.contentItem.mapToGlobal(Qt.point(overlay.width + 14, Math.round((overlay.height - implicitHeight) / 2)))
-            x = position.x
-            y = position.y
-            if (!visible)
-                open()
-            if (autoHide)
-                thoughtHideTimer.restart()
-            else
-                thoughtHideTimer.stop()
-        }
-
-        contentItem: Label {
-            id: thoughtText
-            objectName: "thoughtText"
-            color: Ui.Theme.text
-            font.family: Ui.Theme.family
-            font.pixelSize: Ui.Theme.fontSize
-            wrapMode: Text.Wrap
-            verticalAlignment: Text.AlignVCenter
-        }
-        background: Item {
-            Rectangle {
-                x: 20
-                width: parent.width - 20
-                height: parent.height
-                radius: 18
-                color: Ui.Theme.surface
-                border.color: Ui.Theme.border
-                border.width: 1
-            }
-            Rectangle { x: 9; y: parent.height - 26; width: 14; height: 14; radius: 7; color: Ui.Theme.surface }
-            Rectangle { x: 1; y: parent.height - 11; width: 8; height: 8; radius: 4; color: Ui.Theme.surface }
-        }
-        enter: Transition {
-            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 180; easing.type: Easing.OutQuad }
-        }
-        exit: Transition {
-            NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 150; easing.type: Easing.InQuad }
-        }
-        SequentialAnimation {
-            id: thoughtReveal
-            NumberAnimation { target: thoughtText; property: "opacity"; to: 1; duration: 180; easing.type: Easing.OutQuad }
-        }
-        Timer {
-            id: thoughtHideTimer
-            interval: 4000
-            onTriggered: thoughtToast.close()
-        }
-    }
     Connections {
         target: assistant
-        function onProcessingNotification(message) { thoughtToast.showMessage(message, false) }
-        function onNotification(message) { thoughtToast.showMessage(message, true) }
+        function onNotification(message) { assistant.showError(message) }
         function onThemeChanged() { Ui.Theme.dark = assistant.darkTheme }
     }
     Menu {
@@ -284,6 +246,11 @@ Window {
         exit: Transition {
             NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Ui.Theme.motion; easing.type: Easing.InQuad }
         }
-        function openAboveOrb() { popup(overlay.contentItem, Math.round((overlay.width - width) / 2), -implicitHeight - 12) }
+        onClosed: overlay.menuFocus = false
+        function openAboveOrb() {
+            overlay.menuFocus = true
+            overlay.requestActivate()
+            Qt.callLater(function() { menu.popup(overlay.contentItem, Math.round((overlay.width - menu.width) / 2), -menu.implicitHeight - 12) })
+        }
     }
 }

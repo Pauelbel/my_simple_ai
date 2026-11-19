@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QApplication, QInputDialog
 
 from desktop_assistant.notes_window import NotesWindow
 from desktop_assistant.services.notes import NotesRepository
+from desktop_assistant.controller import AssistantController
 
 
 class NotesWorkspaceTests(unittest.TestCase):
@@ -138,6 +139,56 @@ class NotesWorkspaceTests(unittest.TestCase):
         QTest.keyClick(self.window.view, Qt.Key_S, Qt.ControlModifier)
         self.assertEqual(self.repo.read("Вторая.md"), "**Текст**")
         self.assertFalse(self.bridge.dirty)
+
+    def test_changing_notes_directory_saves_edits_and_persists(self):
+        base = Path(self.temp.name)
+        old = base / "old"
+        new = base / "new"
+        old.mkdir()
+        new.mkdir()
+        with patch("desktop_assistant.settings.app_data_dir", return_value=base), \
+             patch("desktop_assistant.services.notes.app_data_dir", return_value=base):
+            controller = AssistantController(self.app)
+            controller.notes = NotesRepository(old)
+            controller.notes.save("note.md", "before")
+            controller.notes_window = NotesWindow(controller.notes)
+            controller.notes_window.bridge.openNote("note.md")
+            controller.notes_window.bridge.updateContent("after")
+            self.assertTrue(controller._save_preferences(4, str(new)))
+            self.assertEqual((old / "note.md").read_text(), "after")
+            self.assertEqual(controller.notes.root, new)
+            self.assertEqual(AssistantController(self.app).notes.root, new)
+
+    def test_failed_note_save_prevents_directory_change(self):
+        base = Path(self.temp.name)
+        new = base / "new"
+        new.mkdir()
+        with patch("desktop_assistant.settings.app_data_dir", return_value=base), \
+             patch("desktop_assistant.services.notes.app_data_dir", return_value=base):
+            controller = AssistantController(self.app)
+            controller.notes_window = self.window
+            self.bridge.openNote("Вторая.md")
+            self.bridge.updateContent("Не потерять")
+            with patch.object(self.repo, "save", side_effect=OSError("Нет места")):
+                self.assertFalse(controller._save_preferences(4, str(new)))
+            self.assertEqual(self.bridge.content, "Не потерять")
+            self.assertNotEqual(controller.notes.root, new)
+            self.assertFalse(controller.settings.path.exists())
+
+    def test_model_selection_is_saved_and_invalid_model_rejected(self):
+        from desktop_assistant.services.speech_model import REQUIRED_FILES
+        base = Path(self.temp.name)
+        model = base / "model"
+        model.mkdir()
+        with patch("desktop_assistant.settings.app_data_dir", return_value=base), \
+             patch("desktop_assistant.services.notes.app_data_dir", return_value=base):
+            controller = AssistantController(self.app)
+            with self.assertRaises(RuntimeError):
+                controller._save_preferences(2, str(controller.notes.root), str(model))
+            for name in REQUIRED_FILES:
+                (model / name).write_text("{}")
+            self.assertTrue(controller._save_preferences(2, str(controller.notes.root), str(model)))
+            self.assertEqual(AssistantController(self.app).settings.values["speech_model_directory"], str(model))
 
 
 if __name__ == "__main__":

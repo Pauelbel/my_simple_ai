@@ -32,7 +32,6 @@ MenuItem {
     }
     background: Rectangle {
         radius: Theme.radius
-        color: control.down ? Theme.pressed : control.highlighted ? Theme.hover : control.checked ? Theme.selected : "transparent"
-        Behavior on color { ColorAnimation { duration: Theme.motion } }
+        color: control.down ? Theme.pressed : control.highlighted ? Theme.hover : "transparent"
     }
 }

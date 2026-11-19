@@ -1,7 +1,6 @@
-"""Offline model location shared by runtime and packaging."""
+"""Offline speech model location and validation."""
 import hashlib
 import json
-import sys
 from pathlib import Path
 
 MODEL_NAME = "faster-whisper-small"
@@ -12,7 +11,7 @@ REQUIRED_FILES = ("model.bin", "config.json", "tokenizer.json", "vocabulary.txt"
 
 
 def model_directory() -> Path:
-    base = Path(sys._MEIPASS) if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[2]
+    base = Path(__file__).resolve().parents[2]
     return base / "models" / MODEL_NAME
 
 
@@ -21,7 +20,7 @@ def validate_model(directory: Path | None = None) -> Path:
     missing = [name for name in REQUIRED_FILES if not (directory / name).is_file() or (directory / name).stat().st_size == 0]
     if missing:
         raise RuntimeError("Локальная модель распознавания отсутствует или неполна. "
-                           "Нужна сборка с Faster Whisper Small. Отсутствуют: " + ", ".join(missing))
+                           "Запустите python scripts/prepare_speech_model.py. Отсутствуют: " + ", ".join(missing))
     # In particular, a missing tokenizer would otherwise trigger a network fallback.
     try:
         for name in ("config.json", "tokenizer.json"):

@@ -17,7 +17,6 @@ def format_text(text: str) -> str:
 class Transcriber(QObject):
     completed = Signal(str)
     failed = Signal(str)
-    progress = Signal(str)
     finished = Signal(str)
 
     def __init__(self):
@@ -28,10 +27,11 @@ class Transcriber(QObject):
         self._thread = None
 
     @staticmethod
-    def check_ready() -> None:
-        validate_model()
+    def check_ready(settings: dict | None = None) -> None:
+        directory = (settings or {}).get("speech_model_directory")
+        validate_model(Path(directory) if directory else None)
         if find_spec("faster_whisper") is None:
-            raise RuntimeError("В этой сборке отсутствует Faster Whisper. Установите полную сборку приложения.")
+            raise RuntimeError("Faster Whisper не установлен. Выполните pip install -r requirements.txt")
 
     def transcribe(self, audio_path: str, settings: dict) -> bool:
         if not self._lock.acquire(blocking=False):
@@ -45,11 +45,11 @@ class Transcriber(QObject):
         return True
 
     def _load_model(self, settings: dict):
-        directory = validate_model()
+        selected = settings.get("speech_model_directory")
+        directory = validate_model(Path(selected) if selected else None)
         threads = max(1, min(32, int(settings.get("speech_cpu_threads", 4))))
         key = (str(directory), threads)
         if self._model is None or key != self._model_key:
-            self.progress.emit("Подготовка локальной модели распознавания…")
             # Both the hub and tokenizer must remain offline, including first launch.
             os.environ["HF_HUB_OFFLINE"] = "1"
             os.environ["TRANSFORMERS_OFFLINE"] = "1"
@@ -65,7 +65,6 @@ class Transcriber(QObject):
             if not audio.is_file() or audio.stat().st_size <= 44:
                 raise RuntimeError("Запись пуста. Проверьте микрофон и повторите попытку.")
             model = self._load_model(settings)
-            self.progress.emit("Распознаю речь на устройстве…")
             segments, _info = model.transcribe(
                 str(audio), language="ru", task="transcribe", beam_size=5,
                 temperature=0.0, condition_on_previous_text=False,

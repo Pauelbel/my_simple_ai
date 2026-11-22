@@ -5,7 +5,8 @@ from ..core.paths import app_data_dir
 
 
 DEFAULTS = {"speech_cpu_threads": 4, "always_on_top": True, "notes_directory": "",
-            "speech_model_directory": "", "record_hotkey": "Ctrl+Shift+Space"}
+            "speech_model_directory": "", "record_hotkey": "Ctrl+Shift+Space",
+            "overlay_x": None, "overlay_y": None}
 
 
 

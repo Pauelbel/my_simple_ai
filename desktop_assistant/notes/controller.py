@@ -8,6 +8,9 @@ from .window import NotesWindow
 
 class NotesController(QObject):
     themeChanged = Signal()
+    historyRequested = Signal()
+    settingsRequested = Signal()
+    quitRequested = Signal()
 
     def __init__(self, repository: NotesRepository) -> None:
         super().__init__()
@@ -28,6 +31,9 @@ class NotesController(QObject):
         if self.window is None:
             self.window = NotesWindow(self.repository)
             self.window.bridge.themeChanged.connect(self.themeChanged.emit)
+            self.window.bridge.historyRequested.connect(self.historyRequested.emit)
+            self.window.bridge.settingsRequested.connect(self.settingsRequested.emit)
+            self.window.bridge.quitRequested.connect(self.quitRequested.emit)
         self.window.showNormal()
         self.window.raise_()
         self.window.activateWindow()

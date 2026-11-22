@@ -6,9 +6,10 @@ from pathlib import Path
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QIcon
 from PySide6.QtQml import QQmlApplicationEngine
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from desktop_assistant.controller import AssistantController
+from desktop_assistant.core.single_instance import acquire_instance_lock
 
 
 def main() -> int:
@@ -19,6 +20,10 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("DesktopAssistant")
     app.setOrganizationName("DesktopAssistant")
+    instance_lock = acquire_instance_lock()
+    if instance_lock is None:
+        QMessageBox.information(None, "Desktop Assistant", "Desktop Assistant уже запущен.")
+        return 0
     package_dir = Path(str(files("desktop_assistant")))
     app.setWindowIcon(QIcon(str(package_dir / "assets" / "assistant-icon.png")))
     controller = AssistantController(app)

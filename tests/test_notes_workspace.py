@@ -197,6 +197,27 @@ class NotesWorkspaceTests(unittest.TestCase):
         self.assertEqual(summary["title"], "Красивый заголовок")
         self.assertEqual(summary["excerpt"], "Описание заметки.")
 
+    def test_image_preview_does_not_inherit_text_line_spacing(self):
+        from PySide6.QtGui import QImage
+        image = self.repo.resolve("diagram.png")
+        QImage(800, 300, QImage.Format_RGB32).save(str(image))
+        self.repo.save("Схема.md", "До изображения\n\n![Схема](diagram.png)\n\nПосле изображения")
+        self.bridge.openNote("Схема.md")
+        self.bridge.setEditing(False)
+        html = self.bridge.previewHtml
+        image_paragraph = next(line for line in html.splitlines() if "<img " in line)
+        self.assertIn("line-height:100%;", image_paragraph)
+        self.assertIn("line-height:145%;", html)
+
+    def test_empty_table_columns_keep_valid_markdown_delimiters(self):
+        self.repo.save("Таблица.md", "| Заголовок |  |\n| --- |  |\n|  |  |")
+        self.bridge.openNote("Таблица.md")
+        html = self.bridge.previewHtml
+        self.assertIn("<table", html)
+        self.bridge.updateRichContent(html)
+        self.assertRegex(self.bridge.content.splitlines()[1], r"^\|-+\|-\|$")
+        self.assertIn("<table", self.bridge.previewHtml)
+
     def test_ctrl_wheel_changes_preview_zoom_through_window(self):
         self.bridge.openNote("Вторая.md")
         self.bridge.setEditing(False)
@@ -259,6 +280,78 @@ class NotesWorkspaceTests(unittest.TestCase):
                 (model / name).write_text("{}")
             self.assertTrue(controller._save_preferences(2, str(controller.notes.root), str(model)))
             self.assertEqual(AssistantController(self.app).settings.values["speech_model_directory"], str(model))
+
+    def test_library_footer_emits_application_actions(self):
+        from PySide6.QtTest import QSignalSpy
+        from PySide6.QtWidgets import QMessageBox
+        self.window.show()
+        QTest.qWait(60)
+        root = self.window.view.rootObject()
+
+        def click(button):
+            center = button.mapToGlobal(QPointF(button.width() / 2, button.height() / 2)).toPoint()
+            QTest.mouseClick(self.window.view, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                             self.window.view.mapFromGlobal(center))
+
+        for name, signal in (
+            ("historyAction", self.bridge.historyRequested),
+            ("settingsAction", self.bridge.settingsRequested),
+        ):
+            button = root.findChild(QObject, name)
+            self.assertIsNotNone(button)
+            requested = QSignalSpy(signal)
+            click(button)
+            self.assertEqual(requested.count(), 1)
+
+        quit_requested = QSignalSpy(self.bridge.quitRequested)
+        quit_button = root.findChild(QObject, "quitAction")
+        with patch("desktop_assistant.notes.window.QMessageBox.question", return_value=QMessageBox.StandardButton.No):
+            click(quit_button)
+        self.assertEqual(quit_requested.count(), 0)
+        with patch("desktop_assistant.notes.window.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes):
+            click(quit_button)
+        self.assertEqual(quit_requested.count(), 1)
+
+    def test_settings_dialog_passes_always_on_top_choice(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from PySide6.QtWidgets import QCheckBox, QPushButton
+        from desktop_assistant.settings.dialog import SettingsDialog
+        settings = SimpleNamespace(values={
+            "speech_cpu_threads": 4, "always_on_top": True,
+            "record_hotkey": "Ctrl+Shift+Space", "speech_model_directory": "",
+        })
+        save_preferences = Mock(return_value=True)
+        dialog = SettingsDialog(settings, Path(self.temp.name), save_preferences)
+        always_on_top = dialog.findChild(QCheckBox, "alwaysOnTopCheckBox")
+        self.assertIsNotNone(always_on_top)
+        self.assertTrue(always_on_top.isChecked())
+        always_on_top.setChecked(False)
+        dialog.findChild(QPushButton, "primaryButton").click()
+        self.assertFalse(save_preferences.call_args.args[4])
+        dialog.deleteLater()
+
+    def test_notes_application_actions_reach_assistant_windows(self):
+        from unittest.mock import Mock
+        base = Path(self.temp.name)
+        with patch("desktop_assistant.settings.store.app_data_dir", return_value=base), \
+             patch("desktop_assistant.notes.repository.app_data_dir", return_value=base):
+            controller = AssistantController(self.app)
+            controller.notes.repository = NotesRepository(base)
+            controller.history.show = Mock()
+            with patch("desktop_assistant.controller.SettingsDialog") as settings_dialog:
+                controller.showNotes()
+                window = controller.notes.window
+                try:
+                    window.bridge.historyRequested.emit()
+                    window.bridge.settingsRequested.emit()
+                    controller.history.show.assert_called_once_with()
+                    settings_dialog.return_value.exec.assert_called_once_with()
+                finally:
+                    window.bridge._dirty = False
+                    window.close()
+                    window.deleteLater()
+                    self.app.processEvents()
 
 
 if __name__ == "__main__":

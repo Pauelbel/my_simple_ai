@@ -259,6 +259,17 @@ class DictationFlowTests(unittest.TestCase):
             history.close()
             notes.close()
 
+    def test_always_on_top_is_saved_with_preferences(self):
+        from PySide6.QtTest import QSignalSpy
+        changed = QSignalSpy(self.controller.alwaysOnTopChanged)
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertTrue(self.controller._save_preferences(4, directory, always_on_top=False))
+        self.assertFalse(self.controller.alwaysOnTop)
+        self.assertEqual(changed.count(), 1)
+        self.app_settings.save.assert_called_with({
+            'speech_cpu_threads': 4, 'notes_directory': directory, 'always_on_top': False,
+        })
+
     def test_history_window_is_modeless_and_can_be_cleared(self):
         from PySide6.QtWidgets import QMessageBox
         item = {'created_at': '2026-11-18T21:31:07', 'text': 'Привет'}
@@ -276,7 +287,35 @@ class DictationFlowTests(unittest.TestCase):
         finally:
             window.close()
 
-    def test_qml_click_starts_recording_and_processing_indicator_animates(self):
+    def test_qml_overlay_restores_and_saves_last_position(self):
+        from pathlib import Path
+        from PySide6.QtCore import QUrl
+        from PySide6.QtQml import QQmlApplicationEngine
+        from PySide6.QtTest import QTest
+
+        self.app_settings.values.update({"overlay_x": 120, "overlay_y": 140})
+        engine = QQmlApplicationEngine()
+        engine.rootContext().setContextProperty('assistant', self.controller)
+        engine.rootContext().setContextProperty('dictation', self.dictation)
+        engine.load(QUrl.fromLocalFile(str(Path('desktop_assistant/ui/overlay/Head.qml').resolve())))
+        self.assertTrue(engine.rootObjects())
+        window = engine.rootObjects()[0]
+        try:
+            QTest.qWait(50)
+            self.assertEqual((window.x(), window.y()), (120, 140))
+            window.setPosition(220, 180)
+            self.controller._save_overlay_position()
+            self.assertEqual(self.app_settings.values["overlay_x"], 220)
+            self.assertEqual(self.app_settings.values["overlay_y"], 180)
+            self.app_settings.save.assert_called_with({"overlay_x": 220, "overlay_y": 180})
+        finally:
+            window.close()
+            window.deleteLater()
+            self.app.processEvents()
+            engine.deleteLater()
+            self.app.processEvents()
+
+    def test_qml_clicks_open_notes_start_recording_and_animate_processing(self):
         from pathlib import Path
         from PySide6.QtCore import QObject, QPoint, QUrl, Qt
         from PySide6.QtQml import QQmlApplicationEngine
@@ -294,13 +333,11 @@ class DictationFlowTests(unittest.TestCase):
             self.assertTrue(window.flags() & Qt.WindowStaysOnTopHint)
             self.assertTrue(window.flags() & Qt.WindowDoesNotAcceptFocus)
             self.assertFalse(window.flags() & Qt.Tool)
-            QTest.mouseClick(window, Qt.RightButton, Qt.NoModifier, QPoint(68, 68))
-            QTest.qWait(50)
-            menu = window.findChild(QObject, 'assistantMenu')
-            self.assertTrue(menu.property('visible'))
-            self.assertFalse(window.flags() & Qt.WindowDoesNotAcceptFocus)
-            menu.close()
-            QTest.qWait(150)
+            with patch.object(self.controller.notes, 'show') as show_notes:
+                QTest.mouseClick(window, Qt.RightButton, Qt.NoModifier, QPoint(68, 68))
+                QTest.qWait(30)
+                show_notes.assert_called_once_with()
+            self.assertIsNone(window.findChild(QObject, 'assistantMenu'))
             self.assertTrue(window.flags() & Qt.WindowDoesNotAcceptFocus)
             QTest.mouseClick(window, Qt.LeftButton, Qt.NoModifier, QPoint(68, 68))
             QTest.qWait(30)
@@ -326,8 +363,6 @@ class DictationFlowTests(unittest.TestCase):
             self.controller.toggleAlwaysOnTop()
             QTest.qWait(50)
             self.assertFalse(window.flags() & Qt.WindowStaysOnTopHint)
-            pin_item = window.findChild(QObject, 'pinMenuItem')
-            self.assertFalse(pin_item.property('checked'))
             self.controller.toggleAlwaysOnTop()
             QTest.qWait(50)
             self.assertTrue(window.flags() & Qt.WindowStaysOnTopHint)

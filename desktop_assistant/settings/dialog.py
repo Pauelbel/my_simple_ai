@@ -4,6 +4,7 @@ from pathlib import Path
 from PySide6.QtGui import QColor, QKeySequence, QPalette
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -106,6 +107,12 @@ class SettingsDialog(QDialog):
         hotkey.setClearButtonEnabled(True)
         layout.addWidget(hotkey)
         layout.addSpacing(6)
+        section("Окно ассистента")
+        always_on_top = QCheckBox("Держать анимацию поверх всех окон")
+        always_on_top.setObjectName("alwaysOnTopCheckBox")
+        always_on_top.setChecked(bool(settings.values.get("always_on_top", True)))
+        layout.addWidget(always_on_top)
+        layout.addSpacing(6)
         section("Папка заметок")
         hint("Здесь хранятся Markdown-файлы. При смене папки существующие заметки остаются на прежнем месте.")
         folder = QLineEdit(str(notes_root))
@@ -134,7 +141,7 @@ class SettingsDialog(QDialog):
         def save_settings() -> None:
             try:
                 sequence = hotkey.keySequence().toString()
-                if not self.save_preferences(threads.value(), folder.text(), model.text(), sequence):
+                if not self.save_preferences(threads.value(), folder.text(), model.text(), sequence, always_on_top.isChecked()):
                     return
                 self.accept()
             except (OSError, ValueError, RuntimeError) as error:
@@ -183,6 +190,7 @@ class SettingsDialog(QDialog):
             }}
             QLineEdit:focus, QKeySequenceEdit:focus, QSpinBox:focus {{ border-color: {colors['accent']}; }}
             QLineEdit:disabled {{ color: {colors['muted']}; }}
+            QCheckBox {{ color: {colors['text']}; background: transparent; spacing: 8px; }}
             QPushButton {{
                 color: {colors['text']}; background: {colors['surface']};
                 border: 1px solid {colors['border']}; border-radius: 5px;

@@ -34,6 +34,9 @@ class AssistantController(QObject):
         self.dictation.recognized.connect(lambda _text: self.history.refresh())
         self.notes.themeChanged.connect(self.themeChanged.emit)
         self.notes.themeChanged.connect(lambda: self.history.set_dark_theme(self.notes.dark_theme))
+        self.notes.historyRequested.connect(self.showHistory)
+        self.notes.settingsRequested.connect(self.showSettings)
+        self.notes.quitRequested.connect(self.quit)
 
     @Property(bool, notify=themeChanged)
     def darkTheme(self) -> bool:
@@ -76,7 +79,7 @@ class AssistantController(QObject):
         dialog.exec()
 
     def _save_preferences(self, threads: int, folder: str, model: str | None = None,
-                          hotkey: str | None = None) -> bool:
+                          hotkey: str | None = None, always_on_top: bool | None = None) -> bool:
         path = Path(folder).expanduser().resolve()
         if not path.is_dir():
             raise ValueError("Папка заметок не существует")
@@ -93,12 +96,47 @@ class AssistantController(QObject):
             values["speech_model_directory"] = str(model_path)
         if hotkey is not None:
             values["record_hotkey"] = hotkey
+        always_on_top_changed = always_on_top is not None and always_on_top != self.alwaysOnTop
+        if always_on_top is not None:
+            values["always_on_top"] = always_on_top
         self.settings.save(values)
         if hotkey is not None:
             self.record_hotkey.set_sequence(hotkey)
         if changed:
             self.notes.replace_repository(repository)
+        if always_on_top_changed:
+            self.alwaysOnTopChanged.emit()
         return True
+
+    @Slot(QObject)
+    def registerOverlay(self, window: QObject) -> None:
+        self._overlay = window
+        x = self.settings.values.get("overlay_x")
+        y = self.settings.values.get("overlay_y")
+        if type(x) is int and type(y) is int:
+            window.setPosition(x, y)
+            screen = self.app.screenAt(window.geometry().center())
+            if screen is None:
+                screen = self.app.primaryScreen()
+                if screen is not None:
+                    area = screen.availableGeometry()
+                    window.setPosition(
+                        area.x() + (area.width() - window.width()) // 2,
+                        area.y() + (area.height() - window.height()) // 2,
+                    )
+            if screen is not None:
+                area = screen.availableGeometry()
+                window.setPosition(
+                    max(area.left(), min(window.x(), area.right() - window.width() + 1)),
+                    max(area.top(), min(window.y(), area.bottom() - window.height() + 1)),
+                )
+        self.app.aboutToQuit.connect(self._save_overlay_position)
+
+    @Slot()
+    def _save_overlay_position(self) -> None:
+        window = getattr(self, "_overlay", None)
+        if window is not None:
+            self.settings.save({"overlay_x": window.x(), "overlay_y": window.y()})
 
     @Slot()
     def quit(self) -> None:

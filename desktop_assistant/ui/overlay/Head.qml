@@ -7,11 +7,10 @@ import "../components" as Ui
 Window {
     id: overlay
     width: 136; height: 136; visible: true; color: "transparent"
-    flags: Qt.FramelessWindowHint | (menuFocus ? 0 : Qt.WindowDoesNotAcceptFocus) | (assistant.alwaysOnTop ? Qt.WindowStaysOnTopHint : 0)
+    flags: Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus | (assistant.alwaysOnTop ? Qt.WindowStaysOnTopHint : 0)
     title: "Desktop Assistant"
 
     property point dragStart: Qt.point(0, 0)
-    property bool menuFocus: false
     property point windowStart: Qt.point(0, 0)
     property int dragButton: Qt.NoButton
     property bool dragging: false
@@ -75,10 +74,13 @@ Window {
             if (startRecording) dictation.toggleRecording()
         }
         onCanceled: { overlay.dragging = false; overlay.dragButton = Qt.NoButton; nativeMoving = false }
-        onClicked: function(mouse) { if (mouse.button === Qt.RightButton) menu.openAboveOrb() }
+        onClicked: function(mouse) { if (mouse.button === Qt.RightButton) assistant.showNotes() }
     }
 
-    Component.onCompleted: Ui.Theme.dark = assistant.darkTheme
+    Component.onCompleted: {
+        Ui.Theme.dark = assistant.darkTheme
+        assistant.registerOverlay(overlay)
+    }
 
     Connections {
         target: assistant
@@ -88,55 +90,5 @@ Window {
     Connections {
         target: dictation
         function onStatusChanged() { if (dictation.status === "recording") recordingStartSound.play() }
-    }
-    Menu {
-        id: menu
-        objectName: "assistantMenu"
-        width: 284
-        padding: 6
-        popupType: Popup.Window
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-
-        Ui.MenuEntry {
-            objectName: "recordingMenuItem"
-            iconName: overlay.dictationStatus === "recording" ? "stop" : "microphone"
-            text: overlay.dictationStatus === "recording" ? "Остановить запись" : overlay.dictationStatus === "processing" ? "Распознавание…" : overlay.dictationStatus === "starting" ? "Подготовка микрофона…" : "Голосовой ввод"
-            enabled: overlay.dictationStatus === "idle" || overlay.dictationStatus === "recording"
-            checked: overlay.dictationStatus === "recording"
-            onTriggered: dictation.toggleRecording()
-        }
-        Ui.MenuDivider {}
-        Ui.MenuEntry {
-            objectName: "pinMenuItem"
-            iconName: "pin"
-            text: "Анимация поверх всех окон"
-            checked: assistant.alwaysOnTop
-            onTriggered: assistant.toggleAlwaysOnTop()
-        }
-        Ui.MenuDivider {}
-        Ui.MenuEntry { iconName: "note"; text: "Заметки"; onTriggered: assistant.showNotes() }
-        Ui.MenuEntry { iconName: "history"; text: "История распознавания"; onTriggered: assistant.showHistory() }
-        Ui.MenuEntry { iconName: "settings"; text: "Настройки"; onTriggered: assistant.showSettings() }
-        Ui.MenuDivider {}
-        Ui.MenuEntry { iconName: "exit"; text: "Выход"; danger: true; onTriggered: assistant.quit() }
-
-        background: Rectangle {
-            radius: Ui.Theme.radius
-            color: Ui.Theme.surface
-            border.color: Ui.Theme.border
-            border.width: 1
-        }
-        enter: Transition {
-            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Ui.Theme.motion; easing.type: Easing.OutQuad }
-        }
-        exit: Transition {
-            NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Ui.Theme.motion; easing.type: Easing.InQuad }
-        }
-        onClosed: overlay.menuFocus = false
-        function openAboveOrb() {
-            overlay.menuFocus = true
-            overlay.requestActivate()
-            Qt.callLater(function() { menu.popup(overlay.contentItem, Math.round((overlay.width - menu.width) / 2), -menu.implicitHeight - 12) })
-        }
     }
 }

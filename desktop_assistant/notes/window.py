@@ -6,7 +6,10 @@ import re
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, Property, QSettings, Qt, QUrl, Signal, Slot
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QImageReader, QPalette, QTextBlockFormat, QTextCursor, QTextDocument
+from PySide6.QtGui import (QColor, QDesktopServices, QFont, QImageReader, QPalette,
+                           QTextBlockFormat, QTextCharFormat, QTextCursor,
+                           QTextDocument, QTextListFormat, QTextTable,
+                           QTextTableCellFormat, QTextLength)
 from PySide6.QtQuickWidgets import QQuickWidget
 from PySide6.QtWidgets import QFileDialog, QInputDialog, QMainWindow, QMessageBox
 
@@ -18,6 +21,9 @@ class NotesBridge(QObject):
     collectionsChanged = Signal()
     documentChanged = Signal()
     themeChanged = Signal()
+    historyRequested = Signal()
+    settingsRequested = Signal()
+    quitRequested = Signal()
 
     def __init__(self, repository: NotesRepository, window: QMainWindow):
         super().__init__(window)
@@ -29,6 +35,7 @@ class NotesBridge(QObject):
         self._folder = ""
         self._selected = ""
         self._content = ""
+        self._undo_stack = []
         self._dirty = False
         self._query = ""
         self._editing = False
@@ -82,6 +89,9 @@ class NotesBridge(QObject):
     def dirty(self): return self._dirty
 
     @Property(bool, notify=changed)
+    def canUndo(self): return bool(self._undo_stack)
+
+    @Property(bool, notify=changed)
     def editing(self): return self._editing
 
     @Property(str, notify=changed)
@@ -101,9 +111,7 @@ class NotesBridge(QObject):
 
     @Property(str, notify=changed)
     def previewHtml(self):
-        if self._editing:
-            return self._preview_cache[1]
-        key = (self._content, self._preview_style, self._preview_zoom, self._path)
+        key = (self._content, self._preview_style, self._preview_zoom, self._path, self._dark)
         if self._preview_cache[0] == key:
             return self._preview_cache[1]
         doc = QTextDocument()
@@ -112,14 +120,12 @@ class NotesBridge(QObject):
         font.setPixelSize(max(8, round(size * self._preview_zoom / 100)))
         doc.setDefaultFont(font)
         doc.setDefaultStyleSheet(
-            f"a {{ color: {accent}; text-decoration: underline; }} "
-            f"table {{ border-collapse: collapse; margin: 8px 0; }} "
-            f"th, td {{ border: 1px solid {accent}; padding: 6px 10px; }} "
-            f"th {{ font-weight: 600; }}"
+            f"a {{ color: {accent}; text-decoration: underline; }}"
         )
         # QTextDocument created by QML does not inherit our base URL. Absolute
         # file URLs keep library-local Markdown images visible in the preview.
         _, markdown = self.repository.split_front_matter(self._content)
+        markdown = self._normalize_table_delimiters(markdown)
         if self._path:
             note_dir = self.repository.resolve(self._path).parent
             def absolute_image(match):
@@ -145,13 +151,20 @@ class NotesBridge(QObject):
             lambda match: f"<{match.group(1)}>", markdown
         )
         doc.setMarkdown(markdown)
+        self._style_tables(doc)
         block = doc.begin()
         while block.isValid():
             cursor = QTextCursor(block)
             fmt = block.blockFormat()
-            fmt.setLineHeight(145, QTextBlockFormat.LineHeightTypes.ProportionalHeight.value)
-            fmt.setTopMargin(12 if fmt.headingLevel() else 4)
-            fmt.setBottomMargin(10)
+            in_table = cursor.currentTable() is not None
+            line_height = 160 if in_table else (100 if "\ufffc" in block.text() else 145)
+            fmt.setLineHeight(line_height, QTextBlockFormat.LineHeightTypes.ProportionalHeight.value)
+            fmt.setTopMargin(0 if in_table else (12 if fmt.headingLevel() else 4))
+            fmt.setBottomMargin(0 if in_table else 10)
+            if in_table:
+                fmt.setLeftMargin(0)
+                fmt.setRightMargin(0)
+                fmt.setTextIndent(8)
             cursor.setBlockFormat(fmt)
             block = block.next()
         html = doc.toHtml()
@@ -165,6 +178,101 @@ class NotesBridge(QObject):
         html = re.sub(r'<img[^>]*src="([^"]+)"[^>]*>', constrain_image, html)
         self._preview_cache = (key, html)
         return self._preview_cache[1]
+
+    @staticmethod
+    def _normalize_table_delimiters(markdown):
+        """Repair empty Markdown header separators emitted by QTextDocument."""
+        lines = markdown.splitlines()
+        for index in range(1, len(lines)):
+            header = lines[index - 1].strip()
+            separator = lines[index].strip()
+            if not (header.startswith("|") and header.endswith("|") and
+                    separator.startswith("|") and separator.endswith("|")):
+                continue
+            header_cells = header[1:-1].split("|")
+            separator_cells = separator[1:-1].split("|")
+            if len(header_cells) != len(separator_cells):
+                continue
+            if not any("-" in cell for cell in separator_cells):
+                continue
+            if not all(re.fullmatch(r"\s*:?-*:?[\s]*", cell) for cell in separator_cells):
+                continue
+            repaired = [cell.strip() if "-" in cell else "-" for cell in separator_cells]
+            lines[index] = "|" + "|".join(repaired) + "|"
+        return "\n".join(lines)
+
+    def _style_tables(self, document):
+        """Keep all Markdown tables visually consistent without changing data."""
+        header_color = QColor("#343941" if self._dark else "#edf0f3")
+        header_text_color = QColor("#e2e5e9" if self._dark else "#252a32")
+        border_color = QColor("#5a6470" if self._dark else "#cfd5dc")
+        for frame in document.rootFrame().childFrames():
+            if not isinstance(frame, QTextTable):
+                continue
+            table_format = frame.format()
+            table_format.setBorder(1)
+            table_format.setBorderStyle(table_format.BorderStyle.BorderStyle_Solid)
+            table_format.setBorderBrush(border_color)
+            # Qt Quick paints a cell background only inside QTextTable's cell
+            # padding. Keep the cell flush to its borders and put spacing on
+            # the paragraph instead so the header fill covers the whole cell.
+            table_format.setCellPadding(0)
+            table_format.setCellSpacing(0)
+            table_format.setWidth(QTextLength(QTextLength.Type.PercentageLength, 100))
+            table_format.setColumnWidthConstraints([
+                QTextLength(QTextLength.Type.PercentageLength, 100 / frame.columns())
+                for _ in range(frame.columns())
+            ])
+            frame.setFormat(table_format)
+            for row in range(frame.rows()):
+                for column in range(frame.columns()):
+                    cell = frame.cellAt(row, column)
+                    # Whitespace was previously used to keep empty Markdown
+                    # cells alive. It leaks into Qt Quick as small white boxes,
+                    # so clean it from the displayed document.
+                    contents = cell.firstCursorPosition()
+                    contents.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
+                    if not contents.selectedText().strip():
+                        contents.removeSelectedText()
+                    cell_format = QTextTableCellFormat(cell.format())
+                    if row == 0:
+                        cell_format.setBackground(header_color)
+                    cell.setFormat(cell_format)
+                    block_cursor = cell.firstCursorPosition()
+                    block_format = block_cursor.blockFormat()
+                    block_format.setLeftMargin(0)
+                    block_format.setRightMargin(0)
+                    block_format.setTopMargin(0)
+                    block_format.setBottomMargin(0)
+                    block_format.setTextIndent(8)
+                    block_cursor.setBlockFormat(block_format)
+                    if row == 0:
+                        cell_cursor = cell.firstCursorPosition()
+                        cell_cursor.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
+                        char_format = QTextCharFormat()
+                        char_format.setFontWeight(QFont.Weight.Bold)
+                        # QQuickTextEdit paints the character run separately
+                        # from its table cell. Match both colors explicitly so
+                        # no light rectangle appears behind header text.
+                        char_format.setBackground(header_color)
+                        char_format.setForeground(header_text_color)
+                        cell_cursor.mergeCharFormat(char_format)
+
+    @staticmethod
+    def _markdown_from_document(document):
+        """Serialize empty tables without adding visible placeholder glyphs."""
+        sentinel = "\u2060"
+        for frame in document.rootFrame().childFrames():
+            if not isinstance(frame, QTextTable):
+                continue
+            for row in range(frame.rows()):
+                for column in range(frame.columns()):
+                    cell = frame.cellAt(row, column)
+                    contents = cell.firstCursorPosition()
+                    contents.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
+                    if not contents.selectedText().strip():
+                        cell.firstCursorPosition().insertText(sentinel)
+        return document.toMarkdown().replace(sentinel, "").strip()
 
     @Slot(str, int, QColor)
     def setPreviewStyle(self, family, size, accent):
@@ -191,6 +299,16 @@ class NotesBridge(QObject):
                             (QPalette.PlaceholderText, muted)):
             palette.setColor(role, color)
         self.window.setPalette(palette)
+
+    @Slot()
+    def confirmQuit(self):
+        answer = QMessageBox.question(
+            self.window, "Выход", "Завершить работу Desktop Assistant?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.Yes and self.save():
+            self.quitRequested.emit()
 
     def error(self, error):
         QMessageBox.warning(self.window, "Заметки", str(error))
@@ -301,6 +419,7 @@ class NotesBridge(QObject):
             self._selected = path
             self._path = ""
             self._content = ""
+            self._undo_stack = []
             self._editing = False
             self.documentChanged.emit()
             self.refresh()
@@ -315,6 +434,7 @@ class NotesBridge(QObject):
             content = self.repository.read(path)
             self._path = path
             self._content = content
+            self._undo_stack = []
             self._selected = path
             # Opening from the tree selects the containing folder in the list.
             self._folder = Path(path).parent.as_posix() if Path(path).parent != Path(".") else ""
@@ -334,6 +454,140 @@ class NotesBridge(QObject):
         self._dirty = True
         self.changed.emit()
 
+    @Slot(str)
+    def updateRichContent(self, html):
+        """Persist edits made in the formatted document as Markdown.
+
+        QTextDocument is deliberately used for both directions: Qt keeps table,
+        heading, list and character formatting intact when converting to Markdown.
+        """
+        if not self._path:
+            return
+        document = QTextDocument()
+        document.setHtml(html)
+        markdown = self._normalize_table_delimiters(self._markdown_from_document(document))
+        # QML's rich-text editor serializes HTML headings as a bold span on
+        # some Qt versions. Recover their semantic Markdown form explicitly.
+        for level, fragment in re.findall(r"<h([1-6])[^>]*>(.*?)</h\\1>", html,
+                                          flags=re.IGNORECASE | re.DOTALL):
+            heading = QTextDocument()
+            heading.setHtml(fragment)
+            text = heading.toPlainText().strip()
+            if text:
+                bold_line = "**" + text + "**"
+                markdown = re.sub(rf"(?m)^{re.escape(bold_line)}$", "#" * int(level) + " " + text,
+                                  markdown, count=1)
+        # The same fallback also protects headings after a toolbar operation:
+        # QTextDocument may have already flattened an hN tag into bold HTML.
+        _, previous_body = self.repository.split_front_matter(self._content)
+        for source_line in previous_body.splitlines():
+            match = re.match(r"^(#{1,6})\s+(.+?)\s*$", source_line)
+            if match:
+                markdown = re.sub(rf"(?m)^{re.escape('**' + match.group(2) + '**')}$",
+                                  match.group(1) + " " + match.group(2), markdown, count=1)
+        # Keep the original front-matter spelling and ordering; split_front_matter
+        # returns parsed metadata, not the source text we need to write back.
+        prefix = ""
+        lines = self._content.splitlines(keepends=True)
+        if lines and lines[0].strip() == "---":
+            closing = next((index for index in range(1, len(lines))
+                            if lines[index].strip() == "---"), None)
+            if closing is not None:
+                prefix = "".join(lines[:closing + 1]) + "\n\n"
+        new_content = prefix + markdown
+        if new_content != self._content:
+            self._undo_stack.append(self._content)
+            del self._undo_stack[:-100]
+            self.updateContent(new_content)
+
+    @Slot()
+    def undoContent(self):
+        if not self._undo_stack or not self._path:
+            return
+        self._content = self._undo_stack.pop()
+        self._dirty = True
+        self._preview_cache = (None, "")
+        self.documentChanged.emit()
+        self.changed.emit()
+
+    @Slot(str, int, int, str, result="QVariantMap")
+    def formatRichContent(self, html, start, end, action):
+        """Apply a formatting command to the live rich-text document."""
+        document = QTextDocument()
+        document.setHtml(html)
+        cursor = QTextCursor(document)
+        cursor.setPosition(max(0, min(start, document.characterCount() - 1)))
+        cursor.setPosition(max(0, min(end, document.characterCount() - 1)), QTextCursor.KeepAnchor)
+        if action == "heading":
+            block = cursor.blockFormat()
+            block.setHeadingLevel(2 if block.headingLevel() != 2 else 0)
+            cursor.mergeBlockFormat(block)
+        elif action in ("bold", "italic", "code"):
+            char = QTextCharFormat()
+            if action == "bold": char.setFontWeight(QFont.Weight.Bold)
+            elif action == "italic": char.setFontItalic(True)
+            else: char.setFontFamily("monospace")
+            cursor.mergeCharFormat(char)
+        elif action == "link":
+            char = QTextCharFormat()
+            char.setAnchor(True)
+            char.setAnchorHref(cursor.selectedText() or "https://")
+            cursor.mergeCharFormat(char)
+        elif action == "list":
+            cursor.createList(QTextListFormat.Style.ListDisc)
+        elif action == "quote":
+            block = cursor.blockFormat()
+            block.setLeftMargin(block.leftMargin() + 24)
+            cursor.mergeBlockFormat(block)
+        elif action == "table":
+            cursor.insertTable(3, 2)
+        elif action == "delete-table":
+            table = cursor.currentTable()
+            if table:
+                table.removeRows(0, table.rows())
+        elif action in ("add-column", "delete-column"):
+            table = cursor.currentTable()
+            if table:
+                column = table.cellAt(cursor).column()
+                if action == "add-column":
+                    table.insertColumns(column + 1, 1)
+                elif table.columns() > 1:
+                    table.removeColumns(column, 1)
+        elif action in ("add-row", "delete-row"):
+            table = cursor.currentTable()
+            if table:
+                row = table.cellAt(cursor).row()
+                if action == "add-row":
+                    table.insertRows(row + 1, 1)
+                elif table.rows() > 1:
+                    table.removeRows(row, 1)
+        self._style_tables(document)
+        new_position = cursor.position()
+        return {"html": document.toHtml(), "position": new_position}
+
+    @Slot(str, int, result=bool)
+    def cursorInTable(self, html, position):
+        """Tell QML whether a pointer position belongs to a table cell."""
+        document = QTextDocument()
+        document.setHtml(html)
+        cursor = QTextCursor(document)
+        cursor.setPosition(max(0, min(position, document.characterCount() - 1)))
+        return cursor.currentTable() is not None
+
+    @Slot(str, int, result="QVariantMap")
+    def insertRichImage(self, html, position):
+        markdown = self.importImage()
+        if not markdown:
+            return {"html": html, "position": position}
+        target = re.search(r"\]\((.+)\)$", markdown).group(1)
+        image = (self.repository.resolve(self._path).parent / target).resolve()
+        document = QTextDocument()
+        document.setHtml(html)
+        cursor = QTextCursor(document)
+        cursor.setPosition(max(0, min(position, document.characterCount() - 1)))
+        cursor.insertImage(QUrl.fromLocalFile(str(image)).toString())
+        return {"html": document.toHtml(), "position": cursor.position()}
+
     @Slot(result=bool)
     def save(self):
         if not self._path or not self._dirty: return True
@@ -348,8 +602,11 @@ class NotesBridge(QObject):
 
     @Slot(bool)
     def setEditing(self, editing):
-        self._editing = editing
-        self.changed.emit()
+        # Kept as a no-op for callers from older QML versions. Notes are now
+        # edited directly in their formatted view.
+        if self._editing:
+            self._editing = False
+            self.changed.emit()
 
     @Slot(result=str)
     def importImage(self):
@@ -450,6 +707,7 @@ class NotesBridge(QObject):
             self.repository.delete(path)
             if self._path == path:
                 self._path = ""; self._content = ""; self._editing = False
+                self._undo_stack = []
                 self.documentChanged.emit()
             if self._folder == path:
                 self._folder = Path(path).parent.as_posix() if Path(path).parent != Path(".") else ""

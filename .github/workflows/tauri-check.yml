@@ -54,6 +54,13 @@ jobs:
         with:
           components: rustfmt
           targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+          key: ${{ matrix.target }}
+          cache-workspace-crates: "false"
+          cache-bin: "false"
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
       - name: System libraries
         if: runner.os == 'Linux'
         run: |

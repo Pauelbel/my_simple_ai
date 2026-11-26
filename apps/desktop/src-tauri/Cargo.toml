@@ -1,0 +1,22 @@
+[package]
+name = "my-simple-ai"
+version = "0.3.3"
+description = "Local Markdown workspace"
+authors = ["My Simple AI contributors"]
+edition = "2021"
+
+[lib]
+name = "my_simple_ai_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.5.3", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "2.12.0", features = [] }
+tauri-plugin-log = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "2.14"
+tempfile = "3"
+walkdir = "2.5"

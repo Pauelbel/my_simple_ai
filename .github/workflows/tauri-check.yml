@@ -1,0 +1,113 @@
+name: Tauri packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Tag to publish, for example v0.3.0. Leave empty for test packages."
+        type: string
+        required: false
+  push:
+    paths: ["apps/desktop/**", "scripts/tauri-release.mjs", ".github/workflows/tauri-check.yml"]
+  pull_request:
+    paths: ["apps/desktop/**", "scripts/tauri-release.mjs", ".github/workflows/tauri-check.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      matrix:
+        include:
+          - runner: windows-2025
+            target: x86_64-pc-windows-msvc
+            platform: windows-x86_64
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            platform: linux-x86_64
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        working-directory: apps/desktop
+        shell: bash
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      TARGET: ${{ matrix.target }}
+      PLATFORM: ${{ matrix.platform }}
+      APPIMAGE_EXTRACT_AND_RUN: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+          targets: ${{ matrix.target }}
+      - name: System libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev libdbus-1-dev librsvg2-dev libfuse2 patchelf xdg-utils
+      - run: npm ci
+      - run: npm run check
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --target "$TARGET" --locked
+      - name: Configure signed release
+        if: inputs.release_tag != ''
+        env:
+          TAURI_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
+        run: node ../../scripts/tauri-release.mjs prepare
+      - name: Build test package
+        if: inputs.release_tag == ''
+        run: npm run tauri -- build --ci --target "$TARGET" -- --locked
+      - name: Build signed package
+        if: inputs.release_tag != ''
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          test -n "$TAURI_SIGNING_PRIVATE_KEY" || { echo "Missing TAURI_SIGNING_PRIVATE_KEY"; exit 1; }
+          npm run tauri -- build --ci --target "$TARGET" --config "$RUNNER_TEMP/tauri-release.json" -- --locked
+      - run: node ../../scripts/tauri-release.mjs stage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: apps/desktop/release-packages/*
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+    needs: package
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    concurrency:
+      group: publish-tauri-release
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ format('refs/tags/{0}', inputs.release_tag) }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-packages
+      - run: node scripts/tauri-release.mjs manifest
+      - name: Publish both signed packages and the update manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --generate-notes \
+            release-packages/windows-x86_64/* release-packages/linux-x86_64/* release-packages/latest.json
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest

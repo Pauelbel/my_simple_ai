@@ -1,0 +1,318 @@
+.editor-shell {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-color: var(--selected) transparent;
+
+  --note-heading: #eee;
+  --note-text: var(--text);
+  --note-muted: var(--muted);
+  --note-link: #8ebfe0;
+  --note-link-hover: #b7daf1;
+  --note-rule: var(--border);
+  --note-tint: var(--hover);
+  --note-table-row: var(--surface);
+  --note-inline-code: #f5c287;
+  --note-quote: var(--accent);
+
+  --code-surface: #18191a;
+  --code-header: var(--raised);
+  --code-border: #3d4144;
+  --code-text: var(--text);
+  --code-gutter: var(--muted);
+  --code-active: var(--hover);
+  --code-selection: #294b63;
+  --syntax-comment: #98a9c2;
+  --syntax-keyword: #d7adff;
+  --syntax-string: #a8e4ae;
+  --syntax-number: #ffcb91;
+  --syntax-type: #86ded9;
+  --syntax-function: #9ec4ff;
+  --syntax-property: #f6abbf;
+}
+
+.light .editor-shell {
+  --note-heading: #17223c;
+  --note-text: #2d3850;
+  --note-muted: #54627a;
+  --note-link: #2256ac;
+  --note-link-hover: #143978;
+  --note-rule: #d6dfed;
+  --note-tint: #edf3fd;
+  --note-table-row: #f7f9fd;
+  --note-inline-code: #8a3e1b;
+  --note-quote: #526ec0;
+
+  --code-surface: #f2f6fc;
+  --code-header: #e6edf9;
+  --code-border: #becce4;
+  --code-text: #233453;
+  --code-gutter: #586986;
+  --code-active: #e2ebf9;
+  --code-selection: #c8daf8;
+  --syntax-comment: #556783;
+  --syntax-keyword: #6b359e;
+  --syntax-string: #1e6846;
+  --syntax-number: #854b19;
+  --syntax-type: #17696d;
+  --syntax-function: #2359a3;
+  --syntax-property: #96365b;
+}
+
+.editor-mount, .editor-mount [data-milkdown-root] {
+  min-height: 100%;
+}
+
+.editor-shell .milkdown {
+  min-height: 100%;
+  --crepe-base-font-size: 16px;
+  --crepe-font-default: system-ui, sans-serif;
+  --crepe-font-title: var(--crepe-font-default);
+  --crepe-font-code: "Cascadia Code", Consolas, "Liberation Mono", monospace;
+  --crepe-color-background: var(--surface-2);
+  --crepe-color-on-background: var(--note-text);
+  --crepe-color-surface: var(--raised);
+  --crepe-color-surface-low: var(--surface-2);
+  --crepe-color-on-surface: var(--note-text);
+  --crepe-color-on-surface-variant: var(--note-muted);
+  --crepe-color-outline: var(--note-muted);
+  --crepe-color-primary: var(--note-link);
+  --crepe-color-secondary: var(--note-tint);
+  --crepe-color-on-secondary: var(--note-link);
+  --crepe-color-inverse: var(--note-heading);
+  --crepe-color-on-inverse: var(--surface-2);
+  --crepe-color-inline-code: var(--note-inline-code);
+  --crepe-color-error: var(--danger);
+  --crepe-color-hover: var(--note-tint);
+  --crepe-color-selected: var(--code-selection);
+  --crepe-color-inline-area: var(--note-tint);
+  --crepe-shadow-1: 0 4px 18px rgba(13, 23, 47, .18);
+  --crepe-shadow-2: 0 12px 32px rgba(13, 23, 47, .24);
+}
+
+.editor-shell .milkdown .ProseMirror {
+  max-width: 824px;
+  min-height: 60vh;
+  margin: 0 auto;
+  padding: 18px clamp(16px, 3cqi, 26px) 36px;
+  line-height: 1.65;
+  caret-color: var(--note-link);
+  overflow-wrap: anywhere;
+}
+
+.editor-mount { container-type: inline-size; }
+
+.editor-shell .milkdown .ProseMirror :is(h1, h2, h3, h4, h5, h6) {
+  color: var(--note-heading);
+  font-weight: 660;
+  line-height: 1.25;
+  padding: 0;
+  letter-spacing: -.022em;
+}
+
+.editor-shell .milkdown .ProseMirror h1 { font-size: 2em; margin: 1.1em 0 .52em; }
+.editor-shell .milkdown .ProseMirror h2 { font-size: 1.48em; margin: 1.32em 0 .48em; }
+.editor-shell .milkdown .ProseMirror h3 { font-size: 1.19em; margin: 1.25em 0 .4em; }
+.editor-shell .milkdown .ProseMirror :is(h4, h5, h6) { font-size: 1em; margin: 1.08em 0 .35em; }
+.editor-shell .milkdown .ProseMirror :is(h5, h6) { color: var(--note-muted); }
+.editor-shell .milkdown .ProseMirror h6 { font-size: .9em; }
+.editor-shell .milkdown .ProseMirror > :is(h1, h2):nth-child(1 of :not(.ProseMirror-widget)) { margin-top: 0; }
+
+.editor-shell .milkdown .ProseMirror p {
+  padding: 0;
+  margin: 0 0 .78em;
+  line-height: 1.68;
+}
+
+.editor-shell .milkdown .ProseMirror strong { font-weight: 700; color: var(--note-heading); }
+.editor-shell .milkdown .ProseMirror :is(a[href], a[href]:visited) {
+  color: var(--note-link);
+  text-underline-offset: .2em;
+  text-decoration-thickness: .065em;
+  overflow-wrap: anywhere;
+}
+.editor-shell .milkdown .ProseMirror a[href]:hover { color: var(--note-link-hover); }
+
+.editor-shell .milkdown .ProseMirror :not(pre) > code {
+  display: inline;
+  border: 1px solid var(--note-rule);
+  border-radius: 5px;
+  padding: .08em .3em;
+  background: var(--note-tint);
+  color: var(--note-inline-code);
+  font-size: .85em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.editor-shell .milkdown .ProseMirror blockquote {
+  box-sizing: border-box;
+  margin: 1em 0;
+  padding: .7em 1em;
+  border-radius: 0 8px 8px 0;
+  border-inline-start: 3px solid var(--note-quote);
+  background: var(--note-tint);
+}
+.editor-shell .milkdown .ProseMirror blockquote::before { display: none; }
+.editor-shell .milkdown .ProseMirror blockquote > :last-child { margin-bottom: 0; }
+
+.editor-shell .milkdown .ProseMirror :is(ul, ol) { margin: .25em 0 .8em; }
+.editor-shell .milkdown .ProseMirror :is(ul, ol) :is(ul, ol) { margin: 0 0 .2em; }
+.editor-shell .milkdown .ProseMirror li p { margin: .16em 0; }
+.editor-shell .milkdown .milkdown-list-item-block li .label-wrapper { height: 1.8em; }
+.editor-shell .milkdown .ProseMirror hr { margin: 1.4em 0; background-color: var(--note-rule); }
+.editor-shell .milkdown .ProseMirror img { border-radius: 9px; }
+
+.editor-shell .milkdown .milkdown-table-block { margin: 1.25em 0; }
+.editor-shell .milkdown .milkdown-table-block .table-wrapper { overflow-x: auto; }
+.editor-shell .milkdown .milkdown-table-block table.children {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .9em;
+}
+.editor-shell .milkdown .milkdown-table-block :is(th, td) {
+  border-color: var(--note-rule);
+  padding: 7px 11px;
+  vertical-align: top;
+}
+.editor-shell .milkdown .milkdown-table-block th {
+  color: var(--note-heading);
+  background: var(--note-tint);
+  text-align: start;
+}
+.editor-shell .milkdown .milkdown-table-block tr:nth-child(odd) td { background: var(--note-table-row); }
+.editor-shell .milkdown .milkdown-table-block td p,
+.editor-shell .milkdown .milkdown-table-block th p { margin: 0; }
+
+.editor-shell .milkdown .milkdown-code-block {
+  min-width: 0;
+  padding: 0;
+  margin: 1.15em 0 1.35em;
+  border: 1px solid var(--code-border);
+  border-radius: 11px;
+  background: var(--code-surface);
+  color: var(--code-text);
+}
+
+.editor-shell .milkdown .milkdown-code-block:focus-within {
+  border-color: var(--note-quote);
+}
+
+.editor-shell .milkdown .milkdown-code-block .tools {
+  min-height: 38px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--code-border);
+  border-radius: 10px 10px 0 0;
+  background: var(--code-header);
+}
+
+.editor-shell .milkdown .milkdown-code-block .tools :is(.language-button, .tools-button-group button) {
+  min-height: 28px;
+  margin: 0;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  opacity: 1;
+  color: var(--code-text);
+  background: transparent;
+}
+
+.editor-shell .milkdown .milkdown-code-block .tools :is(.language-button, .tools-button-group button):hover {
+  border-color: var(--code-border);
+  background: var(--code-active);
+}
+
+.editor-shell .milkdown .milkdown-code-block .tools .language-button {
+  font-family: var(--crepe-font-code);
+  font-size: 12px;
+}
+
+.editor-shell .milkdown .milkdown-code-block .language-list {
+  height: auto;
+  max-height: min(250px, 40vh);
+}
+
+.editor-shell .milkdown .milkdown-code-block .codemirror-host { min-width: 0; }
+.editor-shell .milkdown .milkdown-code-block .cm-editor {
+  color: var(--code-text);
+  background: transparent;
+  font-size: 13px;
+}
+
+.editor-shell .milkdown .milkdown-code-block .cm-scroller {
+  max-height: min(460px, 62vh);
+  font-family: var(--crepe-font-code);
+  line-height: 1.65;
+  scrollbar-color: var(--code-border) transparent;
+}
+
+.editor-shell .milkdown .milkdown-code-block .cm-content { padding-block: 10px; caret-color: var(--code-text); }
+.editor-shell .milkdown .milkdown-code-block .cm-line { padding-inline: 10px 16px; }
+.editor-shell .milkdown .milkdown-code-block .cm-gutters {
+  color: var(--code-gutter);
+  background: var(--code-surface);
+  border-inline-end: 1px solid var(--code-border);
+  border-end-start-radius: 10px;
+}
+.editor-shell .milkdown .milkdown-code-block .cm-lineNumbers .cm-gutterElement { min-width: 30px; padding-inline: 5px 7px; }
+.editor-shell .milkdown .milkdown-code-block :is(.cm-activeLine, .cm-activeLineGutter) { background: var(--code-active); }
+.editor-shell .milkdown .milkdown-code-block .cm-selectionBackground { background: var(--code-selection); }
+.editor-shell .milkdown .milkdown-code-block .cm-cursor { border-left-color: var(--code-text); }
+.editor-shell .milkdown .ProseMirror .milkdown-code-block-placeholder {
+  padding: 10px 14px;
+  overflow: hidden;
+  color: var(--code-text);
+  background: transparent;
+}
+.editor-shell .milkdown .ProseMirror .milkdown-code-block-placeholder code {
+  color: inherit;
+  font-size: inherit;
+}
+
+.editor-shell .milkdown .milkdown-top-bar {
+  min-height: 32px;
+  padding: 2px 6px;
+  border-color: var(--note-rule);
+  background: var(--surface-2);
+  z-index: 1000;
+}
+.editor-shell .milkdown .milkdown-top-bar .top-bar-heading-selector { padding: 2px; }
+.editor-shell .milkdown .milkdown-top-bar .top-bar-heading-label { min-width: min-content; font-size: 12px; }
+.editor-shell .milkdown .milkdown-top-bar .top-bar-item {
+  width: 25px;
+  height: 24px;
+  margin: 1px;
+  border-radius: 3px;
+}
+.editor-shell .milkdown .milkdown-top-bar .top-bar-item svg { width: 16px; height: 16px; }
+.editor-shell .milkdown .milkdown-top-bar .top-bar-item.active { background: var(--selected); }
+.editor-shell .milkdown .milkdown-top-bar .top-bar-divider { height: 20px; margin: 0 3px; }
+.editor-shell .milkdown :is(button, input, a):focus-visible {
+  outline: 2px solid var(--note-link);
+  outline-offset: -2px;
+}
+
+.editor-feedback {
+  position: sticky;
+  bottom: 12px;
+  z-index: 1001;
+  width: fit-content;
+  max-width: calc(100% - 24px);
+  margin: 0 auto;
+  padding: 8px 12px;
+  border: 1px solid var(--note-rule);
+  border-radius: 8px;
+  background: var(--raised);
+  color: var(--note-text);
+  font-size: 12px;
+  pointer-events: none;
+}
+.editor-feedback[role="status"]:not(.visible) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+}

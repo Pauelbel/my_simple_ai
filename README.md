@@ -1,113 +1,26 @@
-# Desktop Assistant
+# My Simple AI
 
-Помощник для голосового ввода и Markdown-заметок.
+Настольное приложение на Tauri для локальных Markdown-заметок. Документы можно редактировать в оформленном виде с подсветкой кода, ссылками, таблицами и списками.
 
-## Установка на Linux
+## Установка
 
-1. Клонируйте репозиторий:
+Готовые файлы размещаются в [GitHub Releases](https://github.com/Pauelbel/my_simple_ai/releases). Тестовые пакеты доступны в Artifacts успешной сборки [Tauri packages](https://github.com/Pauelbel/my_simple_ai/actions/workflows/tauri-check.yml).
 
-   ```bash
-   git clone https://github.com/Pauelbel/my_simple_ai.git
-   cd my_simple_ai
-   ```
+- **Windows 11 x64.** Запустите `*-setup.exe` и откройте My Simple AI из меню «Пуск». Установщик работает для текущего пользователя и при необходимости скачивает WebView2.
+- **Linux x86_64.** Сохраните `*.AppImage` в папку, доступную на запись, например `~/Applications`. Разрешите запуск в свойствах файла или командой `chmod +x имя-файла.AppImage`, затем откройте его. Если система сообщает, что FUSE 2 отсутствует, запустите файл в терминале с параметром `--appimage-extract-and-run`.
 
-2. Создайте окружение и установите зависимости (нужен Python 3.13):
+В подписанном выпуске приложение проверяет обновления при открытии и каждые четыре часа. Если есть новая версия, нажмите «Обновить». Приложение сохранит текущую заметку, проверит подпись пакета и перезапустится после установки. Тестовые сборки предназначены для ручной проверки.
 
-   ```bash
-   python3.13 -m venv .venv
-   .venv/bin/pip install -r requirements.txt
-   ```
+## Заметки
 
-3. Для голосового ввода скачайте модель (около 486 МБ):
+Заметки лежат в `My Simple AI/notes` внутри системной папки «Документы». Чтобы перенести старую библиотеку, скопируйте содержимое её папки, включая подпапки, в новый каталог. Прежний путь можно уточнить по полю `notes_directory` в старом `settings.json`. Типичный путь на Linux — `~/.local/share/DesktopAssistant/notes`.
 
-   ```bash
-   .venv/bin/python scripts/prepare_speech_model.py
-   ```
+Текущий выпуск охватывает рабочее пространство и заметки. Диктовка, плавающее окно записи и история распознавания ещё не реализованы в Tauri.
 
-4. Запустите приложение:
+## Разработка и выпуск
 
-   ```bash
-   ./run.sh
-   ```
+- Linux: `bash dev-tauri.sh` из корня проекта.
+- Windows: `.\dev-tauri.bat` из корня проекта.
+- Браузерная проверка интерфейса: `npm ci` и `npm run dev` в `apps/desktop`.
 
-Разрешите доступ к микрофону. Нажмите на сферу левой кнопкой мыши, продиктуйте текст и нажмите ещё раз: результат появится в буфере обмена. Правый клик открывает заметки. Распознавание работает без интернета и API-ключа.
-
-История распознавания, настройки, переключение темы и выход доступны через иконки внизу библиотеки заметок. Папку заметок и закрепление анимации поверх всех окон можно изменить в настройках. Существующие заметки остаются в прежней папке; файлы из выбранной папки появятся в приложении.
-
-## Архитектура
-
-Проект разделён по функциональным блокам, а не по общим папкам со смешанными файлами:
-
-```text
-desktop_assistant/             Исходный код приложения
-├── __main__.py                Запуск и подключение QML к контроллерам
-├── controller.py              Координация окон и общих параметров приложения
-├── core/                      Общая инфраструктура: пути и поведение окон
-├── dictation/                 Голосовой ввод
-│   ├── controller.py          Состояния записи и распознавания
-│   ├── recorder.py            Запись звука
-│   ├── transcription.py       Локальное распознавание речи
-│   └── speech_model.py        Расположение и проверка модели
-├── notes/                     Заметки
-│   ├── controller.py          Жизненный цикл окна и смена библиотеки
-│   ├── repository.py          Файлы, папки, поиск и операции с заметками
-│   ├── window.py              Модель редактора и окно заметок
-│   └── qml/                   Интерфейс только этого блока
-├── history/                   История распознаваний: хранение, окно, контроллер
-├── settings/                  Настройки: JSON-хранилище и отдельный диалог
-├── ui/
-│   ├── components/            Общие тема, кнопки, поля, меню и иконки
-│   └── overlay/               Окно помощника и независимая анимация сферы
-└── assets/                    Иконки и звуки
-
-integrations/
-├── desktop/                   Ярлык запуска для окружения рабочего стола
-└── kwin/                      Необязательное расширение KDE/KWin для Wayland
-
-data/speech-models/            Скачанные модели; не хранятся в Git
-scripts/                       Вспомогательные команды установки и подготовки
-tests/                         Автоматические тесты
-```
-
-Зависимости направлены от точки запуска к функциональным блокам. Блоки не обращаются к `AssistantController`: например, заметки работают через `NotesController` и `NotesRepository`, а запись — через `DictationController`. `AssistantController` только собирает блоки, открывает окна и применяет общее закрепление поверх окон.
-
-### Работа с блоками по отдельности
-
-Файловое хранилище заметок можно использовать без окна заметок и без голосового ввода:
-
-```python
-from desktop_assistant.notes.repository import NotesRepository
-
-notes = NotesRepository("/path/to/notes")
-path = notes.create_note("", "Идея")
-notes.save(path, "# Идея\n\nТекст")
-```
-
-Настройки хранятся отдельно от диалога:
-
-```python
-from desktop_assistant.settings.store import Settings
-
-settings = Settings()
-settings.save({"speech_cpu_threads": 8})
-```
-
-Голосовой блок принимает зависимости через конструктор, поэтому рекордер и распознаватель можно заменить при тестировании или использовать контроллер отдельно от главного QML-окна:
-
-```python
-from desktop_assistant.dictation.controller import DictationController
-from desktop_assistant.history.repository import RecognitionHistory
-from desktop_assistant.settings.store import Settings
-
-dictation = DictationController(app, Settings(), RecognitionHistory())
-dictation.toggleRecording()
-```
-
-Анимация находится в `desktop_assistant/ui/overlay/OrbAnimation.qml` и зависит только от строкового свойства `status`: `idle`, `recording` или `processing`. Звук, меню, микрофон и распознавание в компонент анимации не входят.
-
-## Проверка
-
-```bash
-QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
-  .venv/bin/python -m unittest discover -s tests
-```
+Для сборки из исходников нужны Node.js 22, Rust и [системные зависимости Tauri](https://v2.tauri.app/start/prerequisites/). Порядок выпуска и настройка подписи описаны в [спецификации распространения](docs/specs/distribution.md). Остальные требования собраны в [спецификациях](docs/specs/README.md).

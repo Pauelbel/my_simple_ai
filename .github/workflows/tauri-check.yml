@@ -113,6 +113,26 @@ jobs:
         with:
           path: release-packages
       - run: node scripts/tauri-release.mjs manifest
+      - name: Give installers stable download names
+        run: |
+          node --input-type=module <<'JS'
+          import { readFile, rename, writeFile } from 'node:fs/promises'
+          const path = 'release-packages/latest.json'
+          const manifest = JSON.parse(await readFile(path, 'utf8'))
+          for (const [platform, update] of Object.entries(manifest.platforms)) {
+            const url = new URL(update.url)
+            const original = url.pathname.split('/').at(-1)
+            const stable = original.replace(/^My-Simple-AI_\d+\.\d+\.\d+_/, 'My-Simple-AI_')
+            if (stable !== original) {
+              const folder = 'release-packages/' + platform + '/'
+              await rename(folder + original, folder + stable)
+              await rename(folder + original + '.sig', folder + stable + '.sig')
+              url.pathname = url.pathname.slice(0, -original.length) + stable
+              update.url = url.href
+            }
+          }
+          await writeFile(path, JSON.stringify(manifest, null, 2) + '\n')
+          JS
       - name: Publish both signed packages and the update manifest
         env:
           GH_TOKEN: ${{ github.token }}
@@ -120,3 +140,30 @@ jobs:
           gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --generate-notes \
             release-packages/windows-x86_64/* release-packages/linux-x86_64/* release-packages/latest.json
           gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+
+  publish_registry:
+    needs: publish
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+        with:
+          version: 1.3.6
+      - name: Publish release files to GitHub Packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir registry-assets
+          cd registry-assets
+          windows=My-Simple-AI_windows-x86_64-setup.exe
+          linux=My-Simple-AI_linux-x86_64.AppImage
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "$windows" --pattern "$windows.sig" \
+            --pattern "$linux" --pattern "$linux.sig" --pattern latest.json
+          printf '%s' "$GH_TOKEN" | oras login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          oras push "ghcr.io/${GITHUB_REPOSITORY,,}:$RELEASE_TAG" \
+            --artifact-type application/vnd.my-simple-ai.desktop.release.v1 \
+            --annotation "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            "$windows" "$windows.sig" "$linux" "$linux.sig" latest.json

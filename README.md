@@ -4,7 +4,9 @@
 
 ## Установка
 
-Готовые файлы размещаются в [GitHub Releases](https://github.com/Pauelbel/my_simple_ai/releases). Тестовые пакеты доступны в Artifacts успешной сборки [Tauri packages](https://github.com/Pauelbel/my_simple_ai/actions/workflows/tauri-check.yml).
+[Скачать для Windows x64](https://github.com/Pauelbel/my_simple_ai/releases/latest/download/My-Simple-AI_windows-x86_64-setup.exe) · [Скачать для Linux x86_64](https://github.com/Pauelbel/my_simple_ai/releases/latest/download/My-Simple-AI_linux-x86_64.AppImage)
+
+Подписанные выпуски доступны в [Releases](https://github.com/Pauelbel/my_simple_ai/releases) и в [реестре GitHub Packages](https://github.com/Pauelbel/my_simple_ai/packages). Тестовые пакеты доступны в Artifacts успешной сборки [Tauri packages](https://github.com/Pauelbel/my_simple_ai/actions/workflows/tauri-check.yml).
 
 - **Windows 11 x64.** Запустите `*-setup.exe` и откройте My Simple AI из меню «Пуск». Установщик работает для текущего пользователя и при необходимости скачивает WebView2.
 - **Linux x86_64.** Сохраните `*.AppImage` в папку, доступную на запись, например `~/Applications`. Разрешите запуск в свойствах файла или командой `chmod +x имя-файла.AppImage`, затем откройте его. Если система сообщает, что FUSE 2 отсутствует, запустите файл в терминале с параметром `--appimage-extract-and-run`.

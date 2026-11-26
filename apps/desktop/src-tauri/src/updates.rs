@@ -49,7 +49,10 @@ pub async fn check_update(
         .await
         .map_err(|error| error.to_string())?;
     let version = update.as_ref().map(|update| update.version.clone());
-    *pending = update.map(|update| UpdatePackage { update, bytes: None });
+    *pending = update.map(|update| UpdatePackage {
+        update,
+        bytes: None,
+    });
     Ok(version)
 }
 
@@ -84,7 +87,10 @@ pub async fn install_update(
     }
     let mut pending = pending.0.lock().await;
     let package = pending.as_ref().ok_or("Сначала скачайте обновление")?;
-    let bytes = package.bytes.as_deref().ok_or("Сначала скачайте обновление")?;
+    let bytes = package
+        .bytes
+        .as_deref()
+        .ok_or("Сначала скачайте обновление")?;
     package
         .update
         .install(bytes)

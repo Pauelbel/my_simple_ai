@@ -4,7 +4,8 @@
 
 ## Установка
 
-[Скачать для Windows x64](https://github.com/Pauelbel/my_simple_ai/releases/latest/download/My-Simple-AI_windows-x86_64-setup.exe) · [Скачать для Linux x86_64](https://github.com/Pauelbel/my_simple_ai/releases/latest/download/My-Simple-AI_linux-x86_64.AppImage)
+[![Скачать для Windows x64](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20Windows%20x64-0969DA?style=for-the-badge)](https://github.com/Pauelbel/my_simple_ai/releases/latest/download/My-Simple-AI_windows-x86_64-setup.exe)
+[![Скачать для Linux x86_64](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20Linux%20x64-BC4C00?style=for-the-badge)](https://github.com/Pauelbel/my_simple_ai/releases/latest/download/My-Simple-AI_linux-x86_64.AppImage)
 
 Подписанные выпуски доступны в [Releases](https://github.com/Pauelbel/my_simple_ai/releases) и в [реестре GitHub Packages](https://github.com/Pauelbel/my_simple_ai/packages). Тестовые пакеты доступны в Artifacts успешной сборки [Tauri packages](https://github.com/Pauelbel/my_simple_ai/actions/workflows/tauri-check.yml).
 

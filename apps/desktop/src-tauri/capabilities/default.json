@@ -4,6 +4,8 @@
   "description": "Minimum permissions for the main local workspace",
   "windows": ["main"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "core:window:allow-close",
+    "core:window:allow-destroy"
   ]
 }

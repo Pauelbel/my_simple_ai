@@ -5,21 +5,104 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
 use tauri::{Manager, State};
+use tauri_plugin_dialog::DialogExt;
 use walkdir::WalkDir;
 
 mod updates;
 
 struct AppState {
     notes_root: Mutex<PathBuf>,
+    pending_notes_root: Mutex<Option<PathBuf>>,
+}
+
+fn notes_settings_file(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
+    Ok(app.path().app_data_dir()?.join("notes-root.json"))
+}
+
+#[tauri::command]
+fn get_notes_root(state: State<'_, AppState>) -> Result<PathBuf, String> {
+    notes_root(&state)
+}
+
+#[tauri::command]
+async fn pick_notes_root(app: tauri::AppHandle) -> Result<Option<PathBuf>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(folder) = app
+            .dialog()
+            .file()
+            .set_title("Папка для заметок")
+            .blocking_pick_folder()
+        else {
+            return Ok(None);
+        };
+        let path = folder
+            .into_path()
+            .map_err(|error| error.to_string())?
+            .canonicalize()
+            .map_err(|error| error.to_string())?;
+        if !path.is_dir() {
+            return Err("Нужна существующая папка.".into());
+        }
+        let state = app.state::<AppState>();
+        *state
+            .pending_notes_root
+            .lock()
+            .map_err(|_| "Хранилище недоступно")? = Some(path.clone());
+        Ok(Some(path))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+fn set_notes_root(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    path: PathBuf,
+) -> Result<(), String> {
+    let mut pending = state
+        .pending_notes_root
+        .lock()
+        .map_err(|_| "Хранилище недоступно")?;
+    if pending.as_ref() != Some(&path)
+        || !path.is_dir()
+        || path.canonicalize().ok().as_ref() != Some(&path)
+    {
+        return Err("Выберите папку заново.".into());
+    }
+    let mut root = state
+        .notes_root
+        .lock()
+        .map_err(|_| "Хранилище недоступно")?;
+    write_notes_root(
+        &notes_settings_file(&app).map_err(|error| error.to_string())?,
+        &path,
+    )
+    .map_err(|error| error.to_string())?;
+    *root = path;
+    *pending = None;
+    Ok(())
+}
+
+fn write_notes_root(file: &Path, root: &Path) -> std::io::Result<()> {
+    let directory = file.parent().ok_or(std::io::ErrorKind::InvalidInput)?;
+    fs::create_dir_all(directory)?;
+    let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
+    serde_json::to_writer(temporary.as_file_mut(), root)?;
+    temporary.persist(file)?;
+    Ok(())
+}
+
+fn stored_notes_root(file: &Path) -> Option<PathBuf> {
+    let root: PathBuf = serde_json::from_slice(&fs::read(file).ok()?).ok()?;
+    root.is_absolute().then_some(root)
 }
 
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 struct NoteSummary {
     path: String,
     title: String,
     excerpt: String,
-    updated: String,
 }
 
 #[derive(Serialize)]
@@ -133,6 +216,9 @@ fn create_folder(
     if title.eq_ignore_ascii_case(".assets") {
         return Err("Папка .assets предназначена для вложений".into());
     }
+    if title.eq_ignore_ascii_case(".git") {
+        return Err("Имя .git зарезервировано для служебной папки Git".into());
+    }
     let directory = checked_folder(&notes_root(&state)?, &folder)?;
     fs::create_dir(directory.join(title)).map_err(|error| {
         if error.kind() == std::io::ErrorKind::AlreadyExists {
@@ -172,22 +258,27 @@ fn create_note(
         path: library_path(&folder, &filename),
         title: title.into(),
         excerpt: String::new(),
-        updated: String::new(),
     })
 }
 
 #[tauri::command]
 fn list_library(state: State<'_, AppState>) -> Result<Library, String> {
     let root = notes_root(&state)?;
-    fs::create_dir_all(&root).map_err(|error| error.to_string())?;
+    scan_library(&root)
+}
+
+fn scan_library(root: &Path) -> Result<Library, String> {
+    fs::create_dir_all(root).map_err(|error| error.to_string())?;
     let mut notes = Vec::new();
     let mut folders = Vec::new();
-    for entry in WalkDir::new(&root)
+    for entry in WalkDir::new(root)
         .follow_links(false)
         .min_depth(1)
         .into_iter()
         .filter_entry(|entry| {
-            !entry.file_type().is_dir() || !entry.file_name().eq_ignore_ascii_case(".assets")
+            !entry.file_type().is_dir()
+                || !(entry.file_name().eq_ignore_ascii_case(".assets")
+                    || entry.file_name().eq_ignore_ascii_case(".git"))
         })
         .filter_map(Result::ok)
     {
@@ -196,7 +287,7 @@ fn list_library(state: State<'_, AppState>) -> Result<Library, String> {
             continue;
         }
         let Some(relative) = path
-            .strip_prefix(&root)
+            .strip_prefix(root)
             .map_err(|error| error.to_string())?
             .to_str()
         else {
@@ -239,21 +330,43 @@ fn list_library(state: State<'_, AppState>) -> Result<Library, String> {
             .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
             .map(|value| value.as_secs())
             .unwrap_or(0);
-        notes.push(NoteSummary {
-            path: relative,
-            title,
-            excerpt,
-            updated: modified.to_string(),
-        });
+        notes.push((
+            modified,
+            NoteSummary {
+                path: relative,
+                title,
+                excerpt,
+            },
+        ));
     }
-    notes.sort_by(|left, right| right.updated.cmp(&left.updated));
-    Ok(Library { folders, notes })
+    notes.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
+    Ok(Library {
+        folders,
+        notes: notes.into_iter().map(|(_, note)| note).collect(),
+    })
 }
 
 #[tauri::command]
 fn read_note(path: String, state: State<'_, AppState>) -> Result<String, String> {
     let root = notes_root(&state)?;
     fs::read_to_string(checked_existing_note(&root, &path)?).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn delete_note(path: String, state: State<'_, AppState>) -> Result<(), String> {
+    delete_note_file(&notes_root(&state)?, &path)
+}
+
+fn delete_note_file(root: &Path, relative: &str) -> Result<(), String> {
+    let path = safe_note_path(root, relative)?;
+    checked_existing_note(root, relative)?;
+    if !fs::symlink_metadata(&path)
+        .map_err(|error| error.to_string())?
+        .is_file()
+    {
+        return Err("Путь не указывает на файл заметки".into());
+    }
+    fs::remove_file(path).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -304,6 +417,7 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_log::Builder::new().build())
         .manage(updates::PendingUpdate::default())
         .setup(|app| {
@@ -311,37 +425,114 @@ pub fn run() {
                 app.handle()
                     .plugin(tauri_plugin_updater::Builder::new().build())?;
             }
-            let root = app
-                .path()
-                .document_dir()
-                .or_else(|_| app.path().home_dir().map(|home| home.join("Documents")))?
-                .join("My Simple AI")
-                .join("notes");
-            fs::create_dir_all(&root)?;
+            let root = if let Some(saved) = stored_notes_root(&notes_settings_file(app.handle())?) {
+                saved
+            } else {
+                let default = app
+                    .path()
+                    .document_dir()
+                    .or_else(|_| app.path().home_dir().map(|home| home.join("Documents")))?
+                    .join("My Simple AI")
+                    .join("notes");
+                fs::create_dir_all(&default)?;
+                default
+            };
             app.manage(AppState {
                 notes_root: Mutex::new(root),
+                pending_notes_root: Mutex::new(None),
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
-            list_library,
-            create_folder,
-            create_note,
-            read_note,
-            save_note,
-            updates::updates_enabled,
-            updates::check_update,
-            updates::download_update,
-            updates::install_update,
-        ])
+        .invoke_handler(|invoke| {
+            if invoke.message.webview().label() != "main" {
+                return false;
+            }
+            let handle: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
+                list_library,
+                create_folder,
+                create_note,
+                read_note,
+                save_note,
+                delete_note,
+                get_notes_root,
+                pick_notes_root,
+                set_notes_root,
+                updates::updates_enabled,
+                updates::check_update,
+                updates::download_update,
+                updates::install_update,
+            ];
+            handle(invoke)
+        })
         .run(tauri::generate_context!())
         .expect("Tauri application failed");
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{checked_folder, safe_note_path};
+    use super::{
+        checked_folder, delete_note_file, safe_note_path, scan_library, stored_notes_root,
+        write_notes_root,
+    };
     use std::path::Path;
+
+    #[test]
+    fn deletes_only_the_selected_markdown_file_in_the_library() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("notes");
+        std::fs::create_dir_all(root.join("project")).unwrap();
+        let selected = root.join("project/selected.md");
+        let remaining = root.join("project/remaining.md");
+        let outside = temporary.path().join("outside.md");
+        for path in [&selected, &remaining, &outside] {
+            std::fs::write(path, "# Note").unwrap();
+        }
+        assert!(delete_note_file(&root, "../outside.md").is_err());
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&remaining, root.join("alias.md")).unwrap();
+            assert!(delete_note_file(&root, "alias.md").is_err());
+        }
+        delete_note_file(&root, "project/selected.md").unwrap();
+        assert!(!selected.exists());
+        assert!(remaining.is_file());
+        assert!(outside.is_file());
+    }
+
+    #[test]
+    fn library_omits_git_metadata_and_keeps_other_hidden_note_folders() {
+        let library = tempfile::tempdir().unwrap();
+        let root = library.path();
+        for path in [
+            ".git/internal.md",
+            "Project/.git/internal.md",
+            ".drafts/note.md",
+        ] {
+            let path = root.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "# Note").unwrap();
+        }
+
+        let library = scan_library(root).unwrap();
+        assert!(library.folders.contains(&".drafts".into()));
+        assert!(library.folders.contains(&"Project".into()));
+        assert_eq!(library.folders.len(), 2);
+        assert_eq!(library.notes.len(), 1);
+        assert_eq!(library.notes[0].path, ".drafts/note.md");
+    }
+
+    #[test]
+    fn saves_and_replaces_the_configured_note_folder() {
+        let temporary = tempfile::tempdir().unwrap();
+        let file = temporary.path().join("settings").join("notes-root.json");
+        assert_eq!(stored_notes_root(&file), None);
+        let first = temporary.path().join("Первая папка");
+        let second = temporary.path().join("Вторая папка");
+        for root in [&first, &second] {
+            write_notes_root(&file, root).unwrap();
+            assert_eq!(stored_notes_root(&file).as_ref(), Some(root));
+        }
+    }
 
     #[test]
     fn note_paths_are_relative_markdown_files() {

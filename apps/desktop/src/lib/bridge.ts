@@ -4,7 +4,6 @@ export interface NoteSummary {
   path: string
   title: string
   excerpt: string
-  updated: string
 }
 
 interface Library {
@@ -55,9 +54,21 @@ export async function listLibrary(): Promise<Library> {
     path,
     title: path.split('/').at(-1)!.replace(/\.md$/i, ''),
     excerpt: content.replace(/[#*`>-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 90),
-    updated: 'сейчас',
   }))
   return { folders: [...demoFolders], notes }
+}
+
+export function getNotesRoot(): Promise<string> {
+  return isTauri() ? invoke('get_notes_root') : Promise.resolve('Документы/My Simple AI/notes')
+}
+
+export function pickNotesRoot(): Promise<string | null> {
+  if (!isTauri()) return Promise.reject('Выбор папки доступен в настольном приложении.')
+  return invoke('pick_notes_root')
+}
+
+export function setNotesRoot(path: string): Promise<void> {
+  return invoke('set_notes_root', { path })
 }
 
 export async function readNote(path: string): Promise<string> {
@@ -68,6 +79,11 @@ export async function readNote(path: string): Promise<string> {
 export async function saveNote(path: string, content: string): Promise<void> {
   if (isTauri()) return invoke('save_note', { path, content })
   demoNotes[path] = content
+}
+
+export async function deleteNote(path: string): Promise<void> {
+  if (isTauri()) return invoke('delete_note', { path })
+  delete demoNotes[path]
 }
 
 export async function createFolder(title: string, folder: string): Promise<string> {
@@ -87,7 +103,7 @@ export async function createNote(title: string, folder: string): Promise<NoteSum
   const path = folder ? `${folder}/${title}.md` : `${title}.md`
   if (Object.hasOwn(demoNotes, path)) throw new Error('Заметка с таким именем уже существует')
   demoNotes[path] = `# ${title}\n`
-  return { path, title, excerpt: '', updated: '' }
+  return { path, title, excerpt: '' }
 }
 
 export async function updatesEnabled(): Promise<boolean> {

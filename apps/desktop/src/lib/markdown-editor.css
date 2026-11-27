@@ -1,3 +1,16 @@
+@import '@milkdown/crepe/theme/common/prosemirror.css';
+@import '@milkdown/crepe/theme/common/reset.css';
+@import '@milkdown/crepe/theme/common/block-edit.css';
+@import '@milkdown/crepe/theme/common/code-mirror.css';
+@import '@milkdown/crepe/theme/common/cursor.css';
+@import '@milkdown/crepe/theme/common/image-block.css';
+@import '@milkdown/crepe/theme/common/link-tooltip.css';
+@import '@milkdown/crepe/theme/common/list-item.css';
+@import '@milkdown/crepe/theme/common/placeholder.css';
+@import '@milkdown/crepe/theme/common/toolbar.css';
+@import '@milkdown/crepe/theme/common/table.css';
+@import '@milkdown/crepe/theme/common/top-bar.css';
+
 .editor-shell {
   position: relative;
   min-width: 0;
@@ -66,7 +79,10 @@
 
 .editor-shell .milkdown {
   min-height: 100%;
-  --crepe-base-font-size: 16px;
+  --crepe-base-font-size: 14px;
+  --editor-control-font: 12px;
+  --editor-control-height: 26px;
+  --editor-control-radius: 6px;
   --crepe-font-default: system-ui, sans-serif;
   --crepe-font-title: var(--crepe-font-default);
   --crepe-font-code: "Cascadia Code", Consolas, "Liberation Mono", monospace;
@@ -96,6 +112,7 @@
   min-height: 60vh;
   margin: 0 auto;
   padding: 18px clamp(16px, 3cqi, 26px) 36px;
+  font-size: var(--note-font-size, 16px);
   line-height: 1.65;
   caret-color: var(--note-link);
   overflow-wrap: anywhere;
@@ -200,22 +217,23 @@
 }
 
 .editor-shell .milkdown .milkdown-code-block .tools {
-  min-height: 38px;
-  padding: 4px 8px;
+  min-height: 32px;
+  padding: 2px 6px;
   border-bottom: 1px solid var(--code-border);
   border-radius: 10px 10px 0 0;
   background: var(--code-header);
 }
 
 .editor-shell .milkdown .milkdown-code-block .tools :is(.language-button, .tools-button-group button) {
-  min-height: 28px;
+  min-height: var(--editor-control-height);
   margin: 0;
   padding: 3px 8px;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--editor-control-radius);
   opacity: 1;
   color: var(--code-text);
   background: transparent;
+  font-size: var(--editor-control-font);
 }
 
 .editor-shell .milkdown .milkdown-code-block .tools :is(.language-button, .tools-button-group button):hover {
@@ -225,7 +243,6 @@
 
 .editor-shell .milkdown .milkdown-code-block .tools .language-button {
   font-family: var(--crepe-font-code);
-  font-size: 12px;
 }
 
 .editor-shell .milkdown .milkdown-code-block .language-list {
@@ -237,7 +254,7 @@
 .editor-shell .milkdown .milkdown-code-block .cm-editor {
   color: var(--code-text);
   background: transparent;
-  font-size: 13px;
+  font-size: calc(var(--note-font-size, 16px) * .8125);
 }
 
 .editor-shell .milkdown .milkdown-code-block .cm-scroller {
@@ -277,21 +294,151 @@
   background: var(--surface-2);
   z-index: 1000;
 }
-.editor-shell .milkdown .milkdown-top-bar .top-bar-heading-selector { padding: 2px; }
-.editor-shell .milkdown .milkdown-top-bar .top-bar-heading-label { min-width: min-content; font-size: 12px; }
-.editor-shell .milkdown .milkdown-top-bar .top-bar-item {
-  width: 25px;
-  height: 24px;
-  margin: 1px;
-  border-radius: 3px;
+.editor-shell .milkdown .top-bar-heading-selector { padding: 0 2px; }
+.editor-shell .milkdown .top-bar-heading-selector .top-bar-heading-button {
+  height: var(--editor-control-height);
+  padding: 2px 5px;
+  border-radius: var(--editor-control-radius);
 }
-.editor-shell .milkdown .milkdown-top-bar .top-bar-item svg { width: 16px; height: 16px; }
+.editor-shell .milkdown .top-bar-heading-button .top-bar-heading-label {
+  min-width: 0;
+  font-size: var(--editor-control-font);
+}
+.editor-shell .milkdown .top-bar-heading-button .top-bar-chevron { width: 18px; }
+.editor-shell .milkdown :is(.milkdown-top-bar, .milkdown-toolbar, .milkdown-block-handle)
+  :is(.top-bar-item, .toolbar-item, .operation-item) {
+  width: var(--editor-control-height);
+  height: var(--editor-control-height);
+  margin: 1px;
+  padding: 4px;
+  border-radius: var(--editor-control-radius);
+}
+.editor-shell .milkdown :is(.top-bar-item, .toolbar-item, .milkdown-block-handle .operation-item,
+  .link-icon, .link-edit > .button, .link-preview > .button, .image-icon) svg {
+  width: 16px;
+  height: 16px;
+}
 .editor-shell .milkdown .milkdown-top-bar .top-bar-item.active { background: var(--selected); }
-.editor-shell .milkdown .milkdown-top-bar .top-bar-divider { height: 20px; margin: 0 3px; }
+.editor-shell .milkdown :is(.top-bar-divider, .milkdown-toolbar .divider) {
+  align-self: center;
+  height: 16px;
+  margin: 0 3px;
+}
+
+.editor-shell .milkdown :is(.top-bar-heading-dropdown, .milkdown-toolbar, .milkdown-slash-menu,
+  .milkdown-link-edit > .link-edit, .milkdown-link-preview > .link-preview,
+  .milkdown-code-block .list-wrapper, .milkdown-table-block .cell-handle .button-group) {
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--raised);
+  box-shadow: var(--crepe-shadow-1);
+}
+.editor-shell .milkdown :is(.top-bar-heading-option, .milkdown-code-block .language-list-item) {
+  min-height: var(--editor-control-height);
+  padding: 3px 6px;
+  border-radius: var(--editor-control-radius);
+  font-size: var(--editor-control-font);
+  line-height: 18px;
+}
+.editor-shell .milkdown .top-bar-heading-dropdown { min-width: 132px; }
+.editor-shell .milkdown .milkdown-slash-menu .tab-group { padding: 0; }
+.editor-shell .milkdown .milkdown-slash-menu .tab-group ul { padding: 2px; }
+.editor-shell .milkdown .milkdown-slash-menu .menu-groups {
+  max-height: min(240px, 45vh);
+  padding: 0;
+}
+.editor-shell .milkdown .milkdown-slash-menu .menu-group :is(h6, li) { padding: 3px 6px; }
+.editor-shell .milkdown .milkdown-slash-menu .menu-group li {
+  min-width: 156px;
+  min-height: var(--editor-control-height);
+  gap: 6px;
+}
+.editor-shell .milkdown .milkdown-slash-menu .menu-group li svg { width: 16px; height: 16px; }
+.editor-shell .milkdown .milkdown-code-block .list-wrapper { width: min(210px, 100%); }
+.editor-shell .milkdown .milkdown-code-block .search-box {
+  gap: 4px;
+  margin: 0 0 3px;
+  padding: 0;
+  outline: none;
+}
+.editor-shell .milkdown .milkdown-table-block .cell-handle .button-group button { padding: 3px; }
+.editor-shell .milkdown .milkdown-table-block .cell-handle .button-group button svg { width: 16px; height: 16px; }
+
+.editor-shell .milkdown :is(.link-edit, .link-preview) {
+  width: min(240px, calc(100cqi - 24px));
+  height: auto;
+  min-height: 32px;
+  align-items: center;
+  gap: 4px;
+}
+.editor-shell .milkdown :is(.link-edit > .input-area, .link-preview > .link-display) {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--editor-control-font);
+  line-height: 18px;
+}
+.editor-shell .milkdown .link-edit > .button.hidden { display: none; }
+.editor-shell .milkdown :is(.link-edit > .button, .link-preview > .button, .link-preview > .link-icon) {
+  display: grid;
+  flex: 0 0 var(--editor-control-height);
+  height: var(--editor-control-height);
+  place-items: center;
+  padding: 0;
+  border-radius: var(--editor-control-radius);
+}
+
+.editor-shell .milkdown :is(.milkdown-image-block > .image-edit, .milkdown-image-inline > .empty-image-inline) {
+  width: min(380px, 100%);
+  height: auto;
+  min-height: 32px;
+  padding: 3px 5px;
+  gap: 5px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--raised);
+  font-size: var(--editor-control-font);
+  line-height: 18px;
+}
+.editor-shell .milkdown .milkdown-image-inline { max-width: 100%; }
+.editor-shell .milkdown .milkdown-image-inline > .empty-image-inline { width: min(300px, calc(100cqi - 32px)); }
+.editor-shell .milkdown :is(.image-edit, .empty-image-inline) .link-importer { min-width: 0; }
+.editor-shell .milkdown :is(.image-edit, .empty-image-inline) .link-importer > .link-input-area { width: 100%; }
+.editor-shell .milkdown .milkdown-image-block .image-edit .link-importer > .link-input-area { line-height: 18px; }
+.editor-shell .milkdown :is(.image-edit, .empty-image-inline) .link-importer .placeholder {
+  inset-inline: 7px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.editor-shell .milkdown :is(.image-edit, .empty-image-inline) .placeholder .text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.editor-shell .milkdown .milkdown-image-block .image-edit .confirm {
+  padding: 3px 6px;
+  border-radius: var(--editor-control-radius);
+  font-size: var(--editor-control-font);
+  line-height: 20px;
+}
+.editor-shell .milkdown .milkdown-image-block .image-edit .image-preview img { max-width: 20px; max-height: 20px; }
+
 .editor-shell .milkdown :is(button, input, a):focus-visible {
   outline: 2px solid var(--note-link);
   outline-offset: -2px;
 }
+.editor-shell .milkdown :is(.link-edit, .link-importer, .search-box) input:not([type="file"]),
+.editor-shell .milkdown .milkdown-image-block .caption-input {
+  min-height: var(--editor-control-height);
+  padding: 3px 6px;
+  border: 1px solid var(--field-border);
+  border-radius: var(--editor-control-radius);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: var(--editor-control-font);
+  line-height: 18px;
+}
+.editor-shell .milkdown :is(input, textarea)::placeholder { color: var(--muted); }
+.editor-shell .milkdown :is(input, textarea):focus-visible { border-color: var(--text); outline: none; }
 
 .editor-feedback {
   position: sticky;

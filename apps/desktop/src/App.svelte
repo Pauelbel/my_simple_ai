@@ -1,15 +1,24 @@
 <script lang="ts">
+  import { getCurrentWindow } from '@tauri-apps/api/window'
   import { onMount, tick } from 'svelte'
+  import NotesSettings from './lib/NotesSettings.svelte'
   import Icon from './lib/Icon.svelte'
+  import FieldFrame from './lib/FieldFrame.svelte'
+  import DeleteDialog from './lib/DeleteDialog.svelte'
+  import PanelDivider from './lib/PanelDivider.svelte'
   import MarkdownEditor from './lib/MarkdownEditor.svelte'
   import {
-    checkUpdate, createFolder, createNote, downloadUpdate, installUpdate, listLibrary, readNote, saveNote,
+    checkUpdate, createFolder, createNote, deleteNote, downloadUpdate, installUpdate, listLibrary, readNote, saveNote, setNotesRoot,
     updatesEnabled, type NoteSummary,
   } from './lib/bridge'
 
-  type Section = 'chat' | 'scripts' | 'skills' | 'tools' | 'notes'
+  type Section = 'notes' | 'settings'
 
   let section: Section = $state('notes')
+  let settingsBusy = $state(false)
+  let settingsChanged = $state(false)
+  let noteFolderWidth = $state(176)
+  let noteListWidth = $state(200)
   let dark = $state(true)
   let query = $state('')
   let searchOpen = $state(false)
@@ -26,12 +35,18 @@
   let openingNote = $state(false)
   let dirty = $state(false)
   let saving = $state(false)
+  let pendingSave: Promise<boolean> | undefined
+  let saveFailed = $state(false)
+  let noteFontSize = $state(16)
   let loading = $state(true)
   let errorMessage = $state('')
   let creating = $state<'folder' | 'note' | null>(null)
   let noteTitle = $state('')
   let folderTitle = $state('')
   let createBusy = $state(false)
+  let deletingNote = $state(false)
+  let noteDeleteDialog = $state<ReturnType<typeof DeleteDialog>>()
+  let noteToDelete: string | undefined
   let canUpdate = $state(false)
   let updateVersion = $state<string | null>(null)
   let checking = $state(false)
@@ -40,13 +55,7 @@
   let updating = $state(false)
   let updateMessage = $state('')
 
-  const navigation = [
-    { id: 'chat', icon: 'chat', label: 'Чат' },
-    { id: 'scripts', icon: 'script', label: 'Скрипты' },
-    { id: 'skills', icon: 'spark', label: 'Скиллы' },
-    { id: 'tools', icon: 'tool', label: 'Инструменты' },
-    { id: 'notes', icon: 'note', label: 'Заметки' },
-  ] as const
+  const desktop = '__TAURI_INTERNALS__' in window
 
   let folderNotes = $derived(selectedFolder ? notes.filter((note) => parentPath(note.path) === selectedFolder) : notes)
   let searchTerm = $derived(query.trim().toLocaleLowerCase('ru'))
@@ -54,7 +63,14 @@
     `${note.title} ${note.excerpt}`.toLocaleLowerCase('ru').includes(searchTerm),
   ))
   let activeNote = $derived(notes.find((note) => note.path === activePath))
-  let navigating = $derived(loading || openingNote || saving || createBusy)
+  let navigating = $derived(loading || openingNote || saving || createBusy || deletingNote)
+
+  $effect(() => {
+    if (!activePath || !dirty || navigating || updating || saveFailed || markdown === savedMarkdown) return
+    const timer = setTimeout(() => { void persist() }, 650)
+    return () => clearTimeout(timer)
+  })
+
   let visibleFolders = $derived.by(() => {
     const children = new Map<string, string[]>()
     const ordered = [...folders].sort((a, b) => a.localeCompare(b, 'ru', { numeric: true }))
@@ -75,15 +91,8 @@
     return rows
   })
 
-  const dateFormat = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })
-
   function parentPath(path: string) {
     return path.slice(0, Math.max(0, path.lastIndexOf('/')))
-  }
-
-  function displayDate(value: string) {
-    const timestamp = Number(value)
-    return timestamp > 0 ? dateFormat.format(timestamp * 1000) : value
   }
 
   async function toggleSearch() {
@@ -95,6 +104,7 @@
   }
 
   function updateDraft(content: string) {
+    if (content !== markdown) saveFailed = false
     markdown = content
     dirty = content !== savedMarkdown
   }
@@ -103,9 +113,46 @@
     updateDraft(editor?.readMarkdown() ?? markdown)
   }
 
+  function changeNoteFontSize(increase: boolean) {
+    noteFontSize = Math.min(32, Math.max(10, noteFontSize + (increase ? 2 : -2)))
+  }
+
   function changeSection(next: Section) {
+    if (settingsBusy) return
     if (section === 'notes' && next !== 'notes') captureDraft()
     section = next
+  }
+
+  async function requestExit() {
+    try {
+      await getCurrentWindow().close()
+    } catch {
+      changeSection('notes')
+      errorMessage = 'Не удалось закрыть приложение.'
+    }
+  }
+
+  async function updateNotesFolder(path: string) {
+    if (navigating) throw new Error('Дождитесь окончания работы с заметкой.')
+    if (!(await persist())) throw new Error('Сохраните открытую заметку перед сменой папки.')
+    await setNotesRoot(path)
+    activePath = ''
+    savedMarkdown = ''
+    updateDraft('')
+    folders = []
+    notes = []
+    selectedFolder = ''
+    expandedFolders = new Set()
+    creating = null
+    query = ''
+    try {
+      const library = await listLibrary()
+      folders = library.folders
+      notes = library.notes
+      errorMessage = ''
+    } catch {
+      errorMessage = 'Папка сохранена, но прочитать заметки пока не удалось.'
+    }
   }
 
   async function openNote(path: string) {
@@ -127,23 +174,67 @@
   }
 
   async function persist() {
-    if (saving) return false
+    if (deletingNote) return false
+    if (pendingSave) return pendingSave
     if (!activePath) return true
     captureDraft()
     if (!dirty) return true
-    const content = markdown
+    const write = writeDraft(activePath, markdown)
+    pendingSave = write
+    try {
+      return await write
+    } finally {
+      pendingSave = undefined
+    }
+  }
+
+  async function persistLatest() {
+    if (pendingSave) await pendingSave
+    return persist()
+  }
+
+  async function writeDraft(path: string, content: string) {
     try {
       saving = true
       errorMessage = ''
-      await saveNote(activePath, content)
+      await saveNote(path, content)
       savedMarkdown = content
+      saveFailed = false
       captureDraft()
       return !dirty
     } catch (error) {
+      saveFailed = markdown === content
       errorMessage = error instanceof Error ? error.message : String(error)
       return false
     } finally {
       saving = false
+    }
+  }
+
+  function askToDeleteNote(note: NoteSummary) {
+    noteToDelete = note.path
+    void noteDeleteDialog?.open(`Файл «${note.path}» будет удалён с диска без возможности восстановления в приложении.`)
+  }
+
+  async function deleteSelectedNote() {
+    const path = noteToDelete
+    if (!path) return
+    if (loading || openingNote || createBusy || deletingNote || updating) {
+      throw new Error('Дождитесь окончания текущей операции с заметками.')
+    }
+    deletingNote = true
+    try {
+      if (pendingSave) await pendingSave
+      await deleteNote(path)
+      if (activePath === path) {
+        activePath = ''
+        savedMarkdown = ''
+        updateDraft('')
+        errorMessage = ''
+      }
+      notes = notes.filter(note => note.path !== path)
+    } finally {
+      deletingNote = false
     }
   }
 
@@ -252,7 +343,7 @@
   }
 
   async function applyUpdate() {
-    if (updating || openingNote || saving || createBusy || !updateReady) return
+    if (updating || openingNote || saving || createBusy || deletingNote || !updateReady) return
     updating = true
     updateMessage = 'Сохраняю заметку и устанавливаю обновление…'
     try {
@@ -274,6 +365,24 @@
   onMount(() => {
     let disposed = false
     let updateTimer: ReturnType<typeof setInterval> | undefined
+    let closing = false
+    const unlistenClose = desktop
+      ? getCurrentWindow().onCloseRequested(async (event) => {
+        if (closing || settingsBusy || openingNote || createBusy || deletingNote || updating) {
+          event.preventDefault()
+          return
+        }
+        closing = true
+        try {
+          if (!(await persistLatest())) {
+            event.preventDefault()
+            changeSection('notes')
+          }
+        } finally {
+          closing = false
+        }
+      }).catch(() => undefined)
+      : undefined
     void (async () => {
       try {
         const library = await listLibrary()
@@ -294,15 +403,25 @@
       updateTimer = setInterval(() => { void lookForUpdate() }, 4 * 60 * 60 * 1000)
     }).catch(() => {})
     const shortcut = (event: KeyboardEvent) => {
-      if (event.ctrlKey && event.key.toLowerCase() === 's') {
+      if (!event.ctrlKey || event.altKey || event.metaKey || event.isComposing) return
+      if (event.key.toLowerCase() === 's' || event.code === 'KeyS') {
         event.preventDefault()
-        if (!updating) void persist()
+        if (section === 'settings') document.querySelector<HTMLFormElement>('#app-settings-form')?.requestSubmit()
+        else if (!updating) void persistLatest()
+        return
       }
+      if (section !== 'notes' || !activeNote || updating) return
+      const increase = ['+', '='].includes(event.key) || ['Equal', 'NumpadAdd'].includes(event.code)
+      const decrease = event.key === '-' || ['Minus', 'NumpadSubtract'].includes(event.code)
+      if (!increase && !decrease) return
+      event.preventDefault()
+      changeNoteFontSize(increase)
     }
     window.addEventListener('keydown', shortcut, true)
     return () => {
       disposed = true
       clearInterval(updateTimer)
+      void unlistenClose?.then((unlisten) => unlisten?.())
       window.removeEventListener('keydown', shortcut, true)
     }
   })
@@ -313,31 +432,28 @@
 <div class:light={!dark} class="app-frame">
   <aside class="rail" aria-label="Основное меню" inert={updating}>
     <nav class="nav-stack">
-      {#each navigation as item}
-        <button class:active={section === item.id} class="rail-button" title={item.label} aria-current={section === item.id ? 'true' : undefined} onclick={() => changeSection(item.id)}>
-          <Icon name={item.icon} size={17} />
-        </button>
-      {/each}
-    </nav>
-    <div class="rail-divider"></div>
-    <nav class="nav-stack">
-      <button class="rail-button" title="История"><Icon name="history" size={17} /></button>
+      <button class:active={section === 'notes'} class="rail-button" title="Заметки"
+        aria-current={section === 'notes' ? 'true' : undefined}
+        onclick={() => changeSection('notes')}><Icon name="note" size={17} /></button>
       <button class="rail-button" title="Сменить тему" onclick={() => dark = !dark}><Icon name={dark ? 'sun' : 'moon'} size={17} /></button>
-      <button class="rail-button" title="Настройки"><Icon name="settings" size={17} /></button>
-      <button class="rail-button danger" title="Выйти"><Icon name="exit" size={17} /></button>
+      <button class:active={section === 'settings'} class="rail-button" title="Настройки"
+        aria-current={section === 'settings' ? 'true' : undefined}
+        onclick={() => changeSection('settings')}><Icon name="settings" size={17} /></button>
+      <button class="rail-button danger" title="Выйти" disabled={!desktop || settingsBusy || openingNote || createBusy || deletingNote}
+        onclick={requestExit}><Icon name="exit" size={17} /></button>
     </nav>
   </aside>
 
   <main class="workspace">
     <header class="topbar">
       <div class="title-block">
-        <h1>{navigation.find((item) => item.id === section)?.label}</h1>
-        <p aria-live="polite">{updateMessage}</p>
+        <h1>{section === 'settings' ? 'Настройки' : 'Заметки'}</h1>
+        {#if section === 'settings' && canUpdate}<p aria-live="polite">{updateMessage}</p>{/if}
       </div>
       <div class="top-actions">
-        {#if canUpdate}
+        {#if section === 'settings' && canUpdate}
           {#if updateReady}
-            <button class="button primary" disabled={updating || openingNote || saving || createBusy} onclick={applyUpdate}>
+            <button class="button primary" disabled={updating || settingsBusy || openingNote || saving || createBusy || deletingNote} onclick={applyUpdate}>
               {updating ? 'Устанавливаю…' : 'Перезапустить для обновления'}
             </button>
           {:else if updateVersion}
@@ -350,15 +466,21 @@
             </button>
           {/if}
         {/if}
-        {#if section === 'notes' && activeNote}
+        {#if section === 'settings'}
+          <button class="button primary" type="submit" form="app-settings-form" disabled={!settingsChanged || settingsBusy || updating}>
+            <Icon name="save" size={16} />Сохранить
+          </button>
+        {:else if section === 'notes' && activeNote}
           <div class:dirty class="save-state"><i></i>{saving ? 'Сохранение…' : dirty ? 'Не сохранено' : 'Сохранено'}</div>
-          <button class="button primary" disabled={!dirty || saving || updating} onclick={persist}><Icon name="save" size={18} />Сохранить</button>
+          <button class="button primary" disabled={!dirty || saving || updating || deletingNote} onclick={persist}><Icon name="save" size={18} />Сохранить</button>
         {/if}
       </div>
     </header>
 
-    {#if section === 'notes'}
-      <div class="notes-layout" inert={updating}>
+    {#if section === 'settings'}
+      <NotesSettings onSave={updateNotesFolder} disabled={updating} bind:busy={settingsBusy} bind:changed={settingsChanged} />
+    {:else}
+      <div class="notes-layout" style:--note-folder-width={`${noteFolderWidth}px`} style:--note-list-width={`${noteListWidth}px`} inert={updating}>
         <section class="folder-panel" aria-label="Папки">
           <div class="panel-heading">
             <strong>Папки</strong>
@@ -370,7 +492,9 @@
             </button>
             {#if creating === 'folder'}
               <form class="new-note-form folder-form" onsubmit={addFolder}>
-                <input aria-label="Имя папки" placeholder="Имя папки" maxlength="80" bind:value={folderTitle} required />
+                <FieldFrame>
+                  <input aria-label="Имя папки" placeholder="Имя папки" maxlength="80" bind:value={folderTitle} required />
+                </FieldFrame>
                 <button class="button primary" disabled={navigating || !folderTitle.trim()}>Создать</button>
               </form>
             {/if}
@@ -390,39 +514,49 @@
               </div>
             {/each}
           </div>
+          <PanelDivider bind:width={noteFolderWidth} storageKey="my-simple-ai-note-folder-width" label="Ширина панели папок" minWidth={134} maxWidth={300} />
         </section>
         <section class="library-panel" aria-label="Заметки">
           <div class="panel-heading">
             <div><strong>Заметки</strong><span>{folderNotes.length}</span></div>
-            <div class="panel-actions">
+            <div>
               <button class="accent-button" title="Поиск заметок" aria-expanded={searchOpen} bind:this={searchButton} onclick={toggleSearch}><Icon name="search" size={15} /></button>
               <button class="accent-button" title="Новая заметка" disabled={navigating} aria-expanded={creating === 'note'} onclick={() => creating = creating === 'note' ? null : 'note'}><Icon name="plus" size={16} /></button>
             </div>
           </div>
           {#if searchOpen}
-            <label class="search">
-              <Icon name="search" size={14} />
-              <input bind:this={searchInput} bind:value={query} aria-label="Поиск заметок" placeholder="Поиск заметок" onkeydown={(event) => { if (event.key === 'Escape') void toggleSearch() }} />
-            </label>
+            <div class="search">
+              <FieldFrame>
+                <input bind:this={searchInput} bind:value={query} aria-label="Поиск заметок" placeholder="Поиск заметок" onkeydown={(event) => { if (event.key === 'Escape') void toggleSearch() }} />
+              </FieldFrame>
+            </div>
           {/if}
           <div class="note-list">
             {#if creating === 'note'}
               <form class="new-note-form" onsubmit={addNote}>
-                <input aria-label="Имя заметки" placeholder="Имя заметки" maxlength="80" bind:value={noteTitle} required />
+                <FieldFrame>
+                  <input aria-label="Имя заметки" placeholder="Имя заметки" maxlength="80" bind:value={noteTitle} required />
+                </FieldFrame>
                 <button class="button primary" disabled={navigating || !noteTitle.trim()}>Создать</button>
               </form>
             {/if}
             {#each filteredNotes as note (note.path)}
-              <button class:active={note.path === activePath} class="note-card" title={note.path} aria-current={note.path === activePath ? 'true' : undefined} disabled={navigating} onclick={() => openNote(note.path)}>
-                <strong>{note.title}</strong><span>{displayDate(note.updated)}</span><p>{note.excerpt || 'Пустая заметка'}</p>
-              </button>
+              <div class="note-row list-item-with-action" class:active={note.path === activePath}>
+                <button type="button" class="note-card" title={note.title} aria-current={note.path === activePath ? 'true' : undefined} disabled={navigating} onclick={() => openNote(note.path)}>
+                  {note.title}
+                </button>
+                <button type="button" class="list-delete" title="Удалить заметку" aria-label={`Удалить заметку «${note.title}»`}
+                  disabled={navigating} onclick={() => askToDeleteNote(note)}><Icon name="trash" size={14} /></button>
+              </div>
             {:else}
               {#if !loading && creating !== 'note'}
                 <p class="list-empty">{searchTerm ? 'Ничего не найдено' : selectedFolder ? 'В папке пока нет заметок' : 'Пока нет заметок'}</p>
               {/if}
             {/each}
           </div>
+          <PanelDivider bind:width={noteListWidth} storageKey="my-simple-ai-note-list-width" label="Ширина списка заметок" minWidth={176} maxWidth={330} />
         </section>
+        <DeleteDialog bind:this={noteDeleteDialog} heading="Удалить заметку?" onDelete={deleteSelectedNote} />
         <section class="document-panel" aria-label="Документ">
           {#if errorMessage}<div class="error-banner" role="alert">{errorMessage}</div>{/if}
           {#if loading}
@@ -430,18 +564,13 @@
           {:else if activeNote}
             <div class="document-title"><h2>{activeNote.title}</h2><p title={activeNote.path}>{activeNote.path}</p></div>
             {#key activePath}
-              <MarkdownEditor bind:this={editor} value={markdown} onChange={updateDraft} />
+              <MarkdownEditor bind:this={editor} value={markdown} fontSize={noteFontSize} onChange={updateDraft} onZoom={changeNoteFontSize} />
             {/key}
           {:else}
             <div class="empty"><Icon name="note" size={23} /><h2>Выберите или создайте заметку</h2></div>
           {/if}
         </section>
       </div>
-    {:else}
-      <section class="placeholder-page">
-        <Icon name={navigation.find((item) => item.id === section)?.icon ?? 'spark'} size={24} />
-        <p>Раздел пока в разработке.</p>
-      </section>
     {/if}
   </main>
 </div>

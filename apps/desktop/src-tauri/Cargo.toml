@@ -1,6 +1,6 @@
 [package]
 name = "my-simple-ai"
-version = "0.3.4"
+version = "0.3.5"
 description = "Local Markdown workspace"
 authors = ["My Simple AI contributors"]
 edition = "2021"
